@@ -32,8 +32,11 @@ function buildHostPermissions(entries) {
   return [...new Set(permissions)];
 }
 
+// Chromium の version は各部分が 0〜65535 なので、超えたら次の部分に繰り上げる
+const VERSION_PART_LIMIT = 65536;
+
 export function formatExtensionVersion(counter) {
-  return `1.0.${counter}`;
+  return `1.${Math.floor(counter / VERSION_PART_LIMIT)}.${counter % VERSION_PART_LIMIT}`;
 }
 
 export function buildManifest(entries, counter) {

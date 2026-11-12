@@ -7,6 +7,7 @@ import {
   buildManifest,
   selectExtensionEntries,
   buildExtensionVault,
+  formatExtensionVersion,
   writeExtension,
   EXTENSION_FILES,
 } from '../src/generate.js';
@@ -55,6 +56,18 @@ describe('buildManifest', () => {
 
   test('無効なエントリは host_permissions に含めない', () => {
     assert.deepEqual(buildManifest([{ ...baseEntry, enabled: false }], 1).host_permissions, []);
+  });
+});
+
+describe('formatExtensionVersion', () => {
+  test('カウンターを 1.0.<counter> 形式にする', () => {
+    assert.equal(formatExtensionVersion(12), '1.0.12');
+    assert.equal(formatExtensionVersion(65535), '1.0.65535');
+  });
+
+  test('各部分が Chromium の上限 65535 を超えないよう繰り上げる', () => {
+    assert.equal(formatExtensionVersion(65536), '1.1.0');
+    assert.equal(formatExtensionVersion(65536 * 2 + 5), '1.2.5');
   });
 });
 
