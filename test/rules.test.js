@@ -73,6 +73,24 @@ describe('buildRules', () => {
     assert.deepEqual(rules.map((r) => r.id), [1, 2]);
   });
 
+  test('重なるルールでは、より限定的なルールを高い優先度にする', () => {
+    const [wildcard, exact, deeperWildcard] = buildRules([
+      { ...baseEntry, domain: 'example.com', includeSubdomains: true },
+      { ...baseEntry, domain: 'api.example.com', includeSubdomains: false },
+      { ...baseEntry, domain: 'dev.example.com', includeSubdomains: true },
+    ]);
+    assert.ok(exact.priority > wildcard.priority, '完全一致 > サブドメイン込み');
+    assert.ok(deeperWildcard.priority > wildcard.priority, '長いドメイン > 短いドメイン');
+  });
+
+  test('同じドメインでは完全一致をサブドメイン込みより優先する', () => {
+    const [wildcard, exact] = buildRules([
+      { ...baseEntry, domain: 'example.com', includeSubdomains: true },
+      { ...baseEntry, domain: 'example.com', includeSubdomains: false },
+    ]);
+    assert.ok(exact.priority > wildcard.priority);
+  });
+
   test('エントリが 0 件なら空配列を返す', () => {
     assert.deepEqual(buildRules([]), []);
   });

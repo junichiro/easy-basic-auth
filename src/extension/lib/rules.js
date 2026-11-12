@@ -21,10 +21,16 @@ function buildDomainCondition({ domain, includeSubdomains }) {
   return { regexFilter: `^(?:https?|wss?)://${escapeRegExp(domain)}(?::\\d+)?/` };
 }
 
+// 重なるルール (example.com のサブドメイン込みと api.example.com など) では、
+// より限定的なルールを優先する: ラベル数が多いほど高く、同じなら完全一致を優先
+function buildPriority({ domain, includeSubdomains }) {
+  return domain.split('.').length * 2 + (includeSubdomains ? 0 : 1);
+}
+
 function buildRule(entry, id) {
   return {
     id,
-    priority: 1,
+    priority: buildPriority(entry),
     action: {
       type: 'modifyHeaders',
       requestHeaders: [
