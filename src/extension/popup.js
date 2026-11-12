@@ -23,7 +23,10 @@ function render({ unlocked }) {
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
-  if (response?.ok === false) throw new Error(response.error);
+  if (!response) {
+    throw new Error('拡張機能のバックグラウンド処理が応答しません。edge://extensions で再読み込みしてください。');
+  }
+  if (response.ok === false) throw new Error(response.error);
   return response;
 }
 
