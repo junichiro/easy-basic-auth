@@ -21,11 +21,18 @@ function render({ unlocked }) {
   if (!unlocked) elements.password.focus();
 }
 
+const NO_RESPONSE_MESSAGE = '拡張機能のバックグラウンド処理が応答しません。edge://extensions で再読み込みしてください。';
+
 async function send(message) {
-  const response = await chrome.runtime.sendMessage(message);
-  if (!response) {
-    throw new Error('拡張機能のバックグラウンド処理が応答しません。edge://extensions で再読み込みしてください。');
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    // service worker が起動できない場合は「Receiving end does not exist」などで reject される
+    console.error('[edge-basic-auth]', error);
+    throw new Error(NO_RESPONSE_MESSAGE);
   }
+  if (!response) throw new Error(NO_RESPONSE_MESSAGE);
   if (response.ok === false) throw new Error(response.error);
   return response;
 }
