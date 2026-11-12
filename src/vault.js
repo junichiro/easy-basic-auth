@@ -3,6 +3,13 @@ import { deriveKey, encryptJson, decryptJson, VAULT_AAD } from './extension/lib/
 const LEGACY_VERSION = 1;
 export const CONFIG_VERSION = 2;
 
+export class UnsupportedConfigError extends Error {
+  constructor(version) {
+    super(`未対応の config.json のバージョンです (version: ${version})。新しいバージョンのツールで作成された可能性があります`);
+    this.name = 'UnsupportedConfigError';
+  }
+}
+
 /**
  * config.json の状態を判定する。
  * - v1: 旧形式（平文）。エントリがあれば移行が必要
@@ -14,7 +21,7 @@ export function getConfigStatus(config) {
   if (config.version === LEGACY_VERSION) {
     return { initialized: false, needsMigration: (config.entries ?? []).length > 0 };
   }
-  throw new Error(`Unsupported config version: ${config.version}`);
+  throw new UnsupportedConfigError(config.version);
 }
 
 export function getLegacyEntries(config) {

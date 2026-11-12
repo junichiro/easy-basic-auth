@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createEntryService, StateError } from '../src/service.js';
 import { createSession, LockedError } from '../src/session.js';
 import { ValidationError } from '../src/entries.js';
+import { UnsupportedConfigError } from '../src/vault.js';
 import { deriveKey, decryptJson, VAULT_AAD, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 
 const MASTER = 'master password 1234';
@@ -47,7 +48,7 @@ async function decryptExtensionVault(configDir, masterPassword) {
 describe('初期設定', () => {
   test('最初は未初期化かつロック中', async () => {
     const { service } = makeService();
-    assert.deepEqual(service.getStatus(), { initialized: false, unlocked: false, needsMigration: false });
+    assert.deepEqual(service.getStatus(), { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: 12 });
   });
 
   test('未初期化のままエントリ操作はできない', async () => {
@@ -63,7 +64,7 @@ describe('初期設定', () => {
   test('マスターパスワードを設定すると暗号化された config と拡張機能を生成し、アンロック状態になる', async () => {
     const { service, configDir } = makeService();
     await service.setup(MASTER);
-    assert.deepEqual(service.getStatus(), { initialized: true, unlocked: true, needsMigration: false });
+    assert.deepEqual(service.getStatus(), { initialized: true, unlocked: true, needsMigration: false, minMasterPasswordLength: 12 });
     assert.equal(readJson(configDir, 'config.json').version, 2);
     assert.deepEqual(await decryptExtensionVault(configDir, MASTER), { entries: [] });
   });
@@ -105,6 +106,26 @@ describe('ロックとアンロック', () => {
   test('未初期化ではアンロックできない', async () => {
     const { service } = makeService();
     await assert.rejects(service.unlock(MASTER), StateError);
+  });
+
+  test('別プロセスでマスターパスワードが変わり鍵が合わなくなったら、ロック扱いにする', async () => {
+    const { service, configDir } = makeService();
+    await service.setup(MASTER);
+    const other = createEntryService({ configDir, session: createSession(), kdfIterations: 1000 });
+    await other.changeMasterPassword(MASTER, 'changed elsewhere 123');
+
+    await assert.rejects(service.getState(), LockedError);
+    assert.equal(service.getStatus().unlocked, false);
+  });
+
+  test('マスターパスワード変更と旧パスワードでのアンロックが同時に来ても、古い鍵が残らない', async () => {
+    const { service } = makeService();
+    await service.setup(MASTER);
+    await Promise.allSettled([
+      service.changeMasterPassword(MASTER, 'next master password 5678'),
+      service.unlock(MASTER),
+    ]);
+    await assert.doesNotReject(service.getState());
   });
 
   test('一定時間操作がなければ自動でロックされる', async () => {
@@ -202,6 +223,14 @@ describe('マスターパスワードの変更', () => {
   });
 });
 
+describe('未対応の config', () => {
+  test('未知のバージョンの config は UnsupportedConfigError にする', () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ version: 99 }));
+    assert.throws(() => service.getStatus(), UnsupportedConfigError);
+  });
+});
+
 describe('v1 (平文) からの移行', () => {
   function writeLegacyConfig(configDir) {
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
@@ -218,7 +247,31 @@ describe('v1 (平文) からの移行', () => {
   test('平文の config があれば移行が必要と報告する', () => {
     const { service, configDir } = makeService();
     writeLegacyConfig(configDir);
-    assert.deepEqual(service.getStatus(), { initialized: false, unlocked: false, needsMigration: true });
+    assert.deepEqual(service.getStatus(), { initialized: false, unlocked: false, needsMigration: true, minMasterPasswordLength: 12 });
+  });
+
+  test('移行するエントリも検証・正規化する（ID・enabled の補完、ドメインの小文字化）', async () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+      version: 1,
+      extensionVersionCounter: 1,
+      entries: [{ domain: 'HTTPS://Legacy.Example.com/', username: 'u', password: 'p' }],
+    }));
+    const { entries: [entry] } = await service.setup(MASTER);
+    assert.equal(entry.domain, 'legacy.example.com');
+    assert.equal(entry.enabled, true);
+    assert.equal(typeof entry.id, 'string');
+    assert.ok(entry.id.length > 0);
+  });
+
+  test('移行するエントリが不正なら、どのエントリかわかるエラーにする', async () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+      version: 1,
+      extensionVersionCounter: 1,
+      entries: [{ label: '壊れた登録', domain: '', username: 'u', password: 'p' }],
+    }));
+    await assert.rejects(service.setup(MASTER), (error) => error instanceof ValidationError && error.message.includes('壊れた登録'));
   });
 
   test('初期設定で既存エントリを暗号化し、平文の rules.json を削除する', async () => {

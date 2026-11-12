@@ -7,6 +7,7 @@ import { resolveConfigDir } from './config.js';
 import { ValidationError } from './entries.js';
 import { createEntryService, NotFoundError, StateError } from './service.js';
 import { createSession, LockedError } from './session.js';
+import { UnsupportedConfigError } from './vault.js';
 
 const DEFAULT_PORT = 4729;
 const BIND_HOST = '127.0.0.1';
@@ -88,6 +89,15 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function decodeRouteParam(param) {
+  try {
+    return decodeURIComponent(param);
+  } catch {
+    // 不正なパーセントエンコードは存在しない ID として扱う
+    throw new HttpError(404, 'Not found');
+  }
+}
+
 function matchRoute(method, pathname) {
   const candidates = routes
     .map((route) => ({ route, match: route.pattern.exec(pathname) }))
@@ -96,7 +106,7 @@ function matchRoute(method, pathname) {
 
   const found = candidates.find(({ route }) => route.method === method);
   if (!found) throw new HttpError(405, 'Method not allowed');
-  return { handle: found.route.handle, params: found.match.slice(1).map(decodeURIComponent) };
+  return { handle: found.route.handle, params: found.match.slice(1).map(decodeRouteParam) };
 }
 
 async function readJsonBody(req) {
@@ -131,7 +141,7 @@ function toErrorResponse(error) {
   if (error instanceof ValidationError) return [400, { error: error.message, field: error.field }];
   if (error instanceof NotFoundError) return [404, { error: 'エントリが見つかりません' }];
   if (error instanceof LockedError) return [423, { error: 'ロックされています。マスターパスワードで解除してください', locked: true }];
-  if (error instanceof StateError) return [409, { error: error.message }];
+  if (error instanceof StateError || error instanceof UnsupportedConfigError) return [409, { error: error.message }];
 
   console.error('[edge-basic-auth] Unexpected error:', error);
   return [500, { error: '内部エラーが発生しました。サーバーのログを確認してください' }];

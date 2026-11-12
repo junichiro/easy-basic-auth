@@ -118,7 +118,7 @@ describe('初期設定からエントリ操作までの流れ', () => {
 
   test('最初は未初期化', async () => {
     const res = await apiRequest('GET', '/api/status');
-    assert.deepEqual(JSON.parse(res.body), { initialized: false, unlocked: false, needsMigration: false });
+    assert.deepEqual(JSON.parse(res.body), { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: 12 });
   });
 
   test('初期化前のエントリ操作は 423 を返す', async () => {
@@ -177,6 +177,11 @@ describe('初期設定からエントリ操作までの流れ', () => {
 
   test('存在しない ID は 404 を返す', async () => {
     const res = await apiRequest('DELETE', '/api/entries/no-such-id');
+    assert.equal(res.status, 404);
+  });
+
+  test('不正なパーセントエンコードの ID は 404 を返す', async () => {
+    const res = await apiRequest('DELETE', '/api/entries/%E0');
     assert.equal(res.status, 404);
   });
 

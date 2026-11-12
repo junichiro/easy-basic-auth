@@ -1,5 +1,4 @@
 const TOKEN_STORAGE_KEY = 'edge-basic-auth-token';
-const MIN_MASTER_PASSWORD_LENGTH = 12;
 
 const byId = (id) => document.getElementById(id);
 
@@ -33,7 +32,7 @@ const elements = {
   subdomainNoticeList: byId('subdomain-notice-list'),
 };
 
-let status = { initialized: false, unlocked: false, needsMigration: false };
+let status = { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: 0 };
 let state = { entries: [] };
 let editingId = null;
 
@@ -97,7 +96,10 @@ async function callApi(method, path, body) {
 // ---- 画面の切り替え ----
 
 function renderView() {
-  const { initialized, unlocked, needsMigration } = status;
+  const { initialized, unlocked, needsMigration, minMasterPasswordLength } = status;
+  document.querySelectorAll('.min-password-length').forEach((element) => {
+    element.textContent = String(minMasterPasswordLength);
+  });
   elements.setupView.hidden = initialized;
   elements.migrationNotice.hidden = !needsMigration;
   elements.unlockView.hidden = !initialized || unlocked;
@@ -284,9 +286,11 @@ function deleteEntry(entry) {
 
 // ---- マスターパスワード関連のフォーム ----
 
+// 最低文字数はサーバーの値に合わせる（最終的な検証はサーバー側で行う）
 function validateNewPassword(newPassword, confirmPassword) {
-  if ([...newPassword].length < MIN_MASTER_PASSWORD_LENGTH) {
-    return `マスターパスワードは ${MIN_MASTER_PASSWORD_LENGTH} 文字以上にしてください`;
+  const minLength = status.minMasterPasswordLength;
+  if ([...newPassword].length < minLength) {
+    return `マスターパスワードは ${minLength} 文字以上にしてください`;
   }
   if (newPassword !== confirmPassword) return '確認用のパスワードが一致しません';
   return null;
@@ -323,7 +327,7 @@ function bindSetupForm() {
     submit: async (fields) => {
       const migrated = status.needsMigration;
       state = await callApi('POST', '/api/setup', { masterPassword: fields.newPassword.value });
-      status = { initialized: true, unlocked: true, needsMigration: false };
+      status = { ...status, initialized: true, unlocked: true, needsMigration: false };
       renderView();
       renderState();
       showNotice(migrated

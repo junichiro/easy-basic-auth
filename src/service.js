@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import { readConfig, writeConfig, getExtensionDir } from './config.js';
 import { buildManifest, buildExtensionVault, writeExtension, formatExtensionVersion } from './generate.js';
 import { createEntry, updateEntry, toPublicEntry, ValidationError } from './entries.js';
-import { validateMasterPassword } from './master-password.js';
+import { validateMasterPassword, MIN_MASTER_PASSWORD_LENGTH } from './master-password.js';
+import { LockedError } from './session.js';
 import { getConfigStatus, getLegacyEntries, sealConfig, openConfig, readConfigEntries } from './vault.js';
 import { createKdfParams, deriveKey, DecryptionError } from './extension/lib/vault-crypto.js';
 
@@ -90,10 +91,17 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     return { kdf, key: await deriveKey(masterPassword, kdf) };
   }
 
+  // 別プロセスでマスターパスワードが変更されるなどして鍵が合わなければ、ロック扱いにする
   async function readUnlocked() {
     const key = session.getKey();
     const config = requireInitializedConfig();
-    return { config, key, entries: await readConfigEntries(config, key) };
+    try {
+      return { config, key, entries: await readConfigEntries(config, key) };
+    } catch (error) {
+      if (!(error instanceof DecryptionError)) throw error;
+      session.lock();
+      throw new LockedError('マスターパスワードが変更されたため、ロックしました');
+    }
   }
 
   function mutate(changeEntries) {
@@ -105,7 +113,25 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
 
   function getStatus() {
     const { initialized, needsMigration } = getConfigStatus(readConfig(configDir));
-    return { initialized, unlocked: initialized && session.isUnlocked(), needsMigration };
+    return {
+      initialized,
+      unlocked: initialized && session.isUnlocked(),
+      needsMigration,
+      minMasterPasswordLength: MIN_MASTER_PASSWORD_LENGTH,
+    };
+  }
+
+  // 旧形式のエントリも新規登録と同じ検証・正規化を通す（ID と enabled は補完する）
+  function normalizeLegacyEntries(entries) {
+    return entries.map((entry) => {
+      try {
+        return createEntry(entry, () => entry.id || generateId());
+      } catch (error) {
+        if (!(error instanceof ValidationError)) throw error;
+        const name = entry.label || entry.domain || '名前なし';
+        throw new ValidationError(`移行できない登録があります（${name}）: ${error.message}`, error.field);
+      }
+    });
   }
 
   // 初期設定。旧形式 (平文) の config があれば、そのエントリを暗号化して移行する
@@ -115,19 +141,21 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
       const config = readConfig(configDir);
       if (getConfigStatus(config).initialized) throw new StateError('マスターパスワードは設定済みです');
 
+      const entries = normalizeLegacyEntries(getLegacyEntries(config));
       const { kdf, key } = await createKeyFor(masterPassword);
-      const state = await persist({
-        counter: config?.extensionVersionCounter ?? 0, kdf, key, entries: getLegacyEntries(config),
-      });
+      const state = await persist({ counter: config?.extensionVersionCounter ?? 0, kdf, key, entries });
       session.unlock(key);
       return state;
     });
   }
 
-  async function unlock(masterPassword) {
-    const { key } = await openWithPassword(requireInitializedConfig(), masterPassword, 'masterPassword');
-    session.unlock(key);
-    return getStatus();
+  // パスワード変更と同時に実行されても古い鍵を保持しないよう、書き込みと同じ順番待ちに入れる
+  function unlock(masterPassword) {
+    return exclusive(async () => {
+      const { key } = await openWithPassword(requireInitializedConfig(), masterPassword, 'masterPassword');
+      session.unlock(key);
+      return getStatus();
+    });
   }
 
   function changeMasterPassword(currentPassword, newPassword) {

@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getConfigStatus, sealConfig, openConfig, readConfigEntries } from '../src/vault.js';
+import { getConfigStatus, sealConfig, openConfig, readConfigEntries, UnsupportedConfigError } from '../src/vault.js';
 import { createKdfParams, deriveKey, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 
 const PASSWORD = 'master password 1234';
@@ -33,7 +33,7 @@ describe('getConfigStatus', () => {
   });
 
   test('未知のバージョンはエラーにする', () => {
-    assert.throws(() => getConfigStatus({ version: 99 }), /version/);
+    assert.throws(() => getConfigStatus({ version: 99 }), UnsupportedConfigError);
   });
 });
 
