@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Edge Basic Auth</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Edge Basic Auth</h1>
+  <p class="status"><span id="status-text">確認中…</span> <span id="version" class="muted"></span></p>
+
+  <form id="unlock-form" hidden>
+    <!-- パスワードマネージャーが項目を識別しやすいよう、固定のユーザー名欄を置く -->
+    <input type="text" name="username" value="edge-basic-auth" autocomplete="username" hidden>
+    <label for="password">マスターパスワード</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+    <button type="submit" id="unlock-button">解除</button>
+    <p class="hint">1Password などからコピーして貼り付け、Enter で解除できます。</p>
+  </form>
+
+  <div id="unlocked-panel" hidden>
+    <p>登録済みのサイトに Basic 認証ヘッダーを付けています。</p>
+    <button type="button" id="lock-button">ロック</button>
+  </div>
+
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

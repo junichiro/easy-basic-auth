@@ -1,0 +1,98 @@
+:root {
+  --bg: #ffffff;
+  --text: #1c2024;
+  --muted: #5f6b76;
+  --border: #d9dee3;
+  --primary: #0f6cbd;
+  --primary-text: #ffffff;
+  --danger: #c42b1c;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f2327;
+    --text: #e6e9ec;
+    --muted: #9aa5b1;
+    --border: #353b42;
+    --primary: #479ef5;
+    --primary-text: #0b1620;
+    --danger: #ff8a80;
+  }
+}
+
+body {
+  width: 300px;
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.status {
+  margin: 0 0 12px;
+}
+
+.muted,
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+input[type="password"] {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+button {
+  padding: 6px 16px;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--primary-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+#lock-button {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.hint {
+  margin: 8px 0 0;
+}
+
+.error {
+  margin: 10px 0 0;
+  color: var(--danger);
+}
+
+[hidden] {
+  display: none !important;
+}
