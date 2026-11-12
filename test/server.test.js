@@ -190,9 +190,11 @@ describe('初期設定からエントリ操作までの流れ', () => {
     assert.equal(res.status, 405);
   });
 
-  test('ロックするとエントリ操作は 423 を返す', async () => {
+  test('ロックするとエントリ操作は 423 とロック中である旨を返す', async () => {
     assert.equal((await apiRequest('POST', '/api/lock')).status, 200);
-    assert.equal((await apiRequest('GET', '/api/state')).status, 423);
+    const res = await apiRequest('GET', '/api/state');
+    assert.equal(res.status, 423);
+    assert.match(JSON.parse(res.body).error, /ロックされています/);
   });
 
   test('誤ったマスターパスワードではアンロックできない', async () => {

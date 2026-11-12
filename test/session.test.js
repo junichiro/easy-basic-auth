@@ -30,13 +30,21 @@ describe('createSession', () => {
     assert.throws(() => session.getKey(), LockedError);
   });
 
+  test('ticket を取得した後にロックされたら、unlock は無視される', () => {
+    const session = createSession({ idleTimeoutMs: IDLE });
+    const ticket = session.ticket();
+    session.lock();
+    assert.equal(session.unlock('KEY', ticket), false);
+    assert.equal(session.isUnlocked(), false);
+  });
+
   test('一定時間操作がなければ自動でロックする', () => {
     const clock = createClock();
     const session = createSession({ idleTimeoutMs: IDLE, now: clock.now });
     session.unlock('KEY');
     clock.advance(IDLE + 1);
+    assert.throws(() => session.getKey(), /一定時間操作がなかった/);
     assert.equal(session.isUnlocked(), false);
-    assert.throws(() => session.getKey(), LockedError);
   });
 
   test('鍵を使うたびに自動ロックまでの時間を延長する', () => {

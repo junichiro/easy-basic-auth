@@ -1,9 +1,10 @@
 import { deriveKey, encryptJson, decryptJson, VAULT_AAD } from './extension/lib/vault-crypto.js';
+import { StateError } from './errors.js';
 
 const LEGACY_VERSION = 1;
 export const CONFIG_VERSION = 2;
 
-export class UnsupportedConfigError extends Error {
+export class UnsupportedConfigError extends StateError {
   constructor(version) {
     super(`未対応の config.json のバージョンです (version: ${version})。新しいバージョンのツールで作成された可能性があります`);
     this.name = 'UnsupportedConfigError';

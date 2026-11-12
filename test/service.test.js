@@ -114,8 +114,30 @@ describe('ロックとアンロック', () => {
     const other = createEntryService({ configDir, session: createSession(), kdfIterations: 1000 });
     await other.changeMasterPassword(MASTER, 'changed elsewhere 123');
 
-    await assert.rejects(service.getState(), LockedError);
+    await assert.rejects(service.getState(), (error) => error instanceof LockedError
+      && error.message.includes('マスターパスワードが変更されたか') && error.message.includes('破損'));
     assert.equal(service.getStatus().unlocked, false);
+  });
+
+  test('解除処理中にロックされたら、解除が後から完了してもロックのままにする', async () => {
+    const { service } = makeService();
+    await service.setup(MASTER);
+    service.lock();
+    const pending = service.unlock(MASTER);
+    service.lock();
+    await pending;
+    assert.equal(service.getStatus().unlocked, false);
+  });
+
+  test('マスターパスワード変更中にロックされたら、変更は保存するがロックのままにする', async () => {
+    const { service } = makeService();
+    await service.setup(MASTER);
+    const pending = service.changeMasterPassword(MASTER, 'next master password 5678');
+    service.lock();
+    await pending;
+    assert.equal(service.getStatus().unlocked, false);
+    await service.unlock('next master password 5678');
+    assert.equal(service.getStatus().unlocked, true);
   });
 
   test('マスターパスワード変更と旧パスワードでのアンロックが同時に来ても、古い鍵が残らない', async () => {
@@ -264,6 +286,37 @@ describe('v1 (平文) からの移行', () => {
     assert.ok(entry.id.length > 0);
   });
 
+  test('移行するエントリの ID が文字列でない・重複している場合は振り直す', async () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+      version: 1,
+      extensionVersionCounter: 1,
+      entries: [
+        { id: 3, domain: 'a.example.com', username: 'u', password: 'p' },
+        { id: 'dup', domain: 'b.example.com', username: 'u', password: 'p' },
+        { id: 'dup', domain: 'c.example.com', username: 'u', password: 'p' },
+      ],
+    }));
+    const { entries } = await service.setup(MASTER);
+    const ids = entries.map((entry) => entry.id);
+    assert.ok(ids.every((id) => typeof id === 'string' && id.length > 0));
+    assert.equal(new Set(ids).size, 3);
+    assert.equal(ids[1], 'dup');
+  });
+
+  test('移行するエントリのドメインが重複していればエラーにする', async () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+      version: 1,
+      extensionVersionCounter: 1,
+      entries: [
+        { label: '一つ目', domain: 'a.example.com', username: 'u', password: 'p' },
+        { label: '二つ目', domain: 'A.example.com', username: 'u', password: 'p' },
+      ],
+    }));
+    await assert.rejects(service.setup(MASTER), (error) => error instanceof ValidationError && error.message.includes('二つ目'));
+  });
+
   test('移行するエントリが不正なら、どのエントリかわかるエラーにする', async () => {
     const { service, configDir } = makeService();
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
@@ -271,7 +324,9 @@ describe('v1 (平文) からの移行', () => {
       extensionVersionCounter: 1,
       entries: [{ label: '壊れた登録', domain: '', username: 'u', password: 'p' }],
     }));
-    await assert.rejects(service.setup(MASTER), (error) => error instanceof ValidationError && error.message.includes('壊れた登録'));
+    await assert.rejects(service.setup(MASTER), (error) => error instanceof ValidationError
+      && error.message.includes('壊れた登録')
+      && error.message.includes(path.join(configDir, 'config.json')));
   });
 
   test('初期設定で既存エントリを暗号化し、平文の rules.json を削除する', async () => {

@@ -32,7 +32,7 @@ const elements = {
   subdomainNoticeList: byId('subdomain-notice-list'),
 };
 
-let status = { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: 0 };
+let status = { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: null };
 let state = { entries: [] };
 let editingId = null;
 
@@ -86,9 +86,7 @@ async function callApi(method, path, body) {
   if (res.status === 401) {
     throw new Error('トークンが無効です。サーバーのコンソールに表示された URL を開き直してください。');
   }
-  if (res.status === 423) {
-    handleLocked('一定時間操作がなかったためロックしました。マスターパスワードで解除してください。');
-  }
+  if (res.status === 423) handleLocked(payload.error);
   if (!res.ok) throw new Error(payload.error || `リクエストに失敗しました (${res.status})`);
   return payload;
 }
@@ -97,9 +95,11 @@ async function callApi(method, path, body) {
 
 function renderView() {
   const { initialized, unlocked, needsMigration, minMasterPasswordLength } = status;
-  document.querySelectorAll('.min-password-length').forEach((element) => {
-    element.textContent = String(minMasterPasswordLength);
-  });
+  if (Number.isInteger(minMasterPasswordLength)) {
+    document.querySelectorAll('.min-password-length').forEach((element) => {
+      element.textContent = String(minMasterPasswordLength);
+    });
+  }
   elements.setupView.hidden = initialized;
   elements.migrationNotice.hidden = !needsMigration;
   elements.unlockView.hidden = !initialized || unlocked;
@@ -289,7 +289,7 @@ function deleteEntry(entry) {
 // 最低文字数はサーバーの値に合わせる（最終的な検証はサーバー側で行う）
 function validateNewPassword(newPassword, confirmPassword) {
   const minLength = status.minMasterPasswordLength;
-  if ([...newPassword].length < minLength) {
+  if (Number.isInteger(minLength) && [...newPassword].length < minLength) {
     return `マスターパスワードは ${minLength} 文字以上にしてください`;
   }
   if (newPassword !== confirmPassword) return '確認用のパスワードが一致しません';

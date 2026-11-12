@@ -101,6 +101,13 @@ export function updateEntry(existing, input) {
   return { id: existing.id, ...normalizeEntryFields({ ...existing, ...changes }) };
 }
 
+export function assertUniqueDomain(entries, candidate) {
+  const duplicate = entries.find((entry) => entry.id !== candidate.id && entry.domain === candidate.domain);
+  if (duplicate) {
+    throw new ValidationError(`${candidate.domain} は既に登録されています（${duplicate.label}）`, 'domain');
+  }
+}
+
 /**
  * UI に返すための表現。パスワードは絶対に含めない。
  */

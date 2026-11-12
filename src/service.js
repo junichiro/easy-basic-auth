@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { readConfig, writeConfig, getExtensionDir } from './config.js';
 import { buildManifest, buildExtensionVault, writeExtension, formatExtensionVersion } from './generate.js';
-import { createEntry, updateEntry, toPublicEntry, ValidationError } from './entries.js';
+import { createEntry, updateEntry, toPublicEntry, assertUniqueDomain, ValidationError } from './entries.js';
+import { StateError } from './errors.js';
+import { normalizeLegacyEntries } from './migration.js';
 import { validateMasterPassword, MIN_MASTER_PASSWORD_LENGTH } from './master-password.js';
 import { LockedError } from './session.js';
 import { getConfigStatus, getLegacyEntries, sealConfig, openConfig, readConfigEntries } from './vault.js';
@@ -14,20 +17,7 @@ export class NotFoundError extends Error {
   }
 }
 
-// 初期設定済み/未設定など、現在の状態では実行できない操作
-export class StateError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'StateError';
-  }
-}
-
-function assertUniqueDomain(entries, candidate) {
-  const duplicate = entries.find((entry) => entry.id !== candidate.id && entry.domain === candidate.domain);
-  if (duplicate) {
-    throw new ValidationError(`${candidate.domain} は既に登録されています（${duplicate.label}）`, 'domain');
-  }
-}
+export { StateError };
 
 function findEntryIndex(entries, id) {
   const index = entries.findIndex((entry) => entry.id === id);
@@ -91,7 +81,8 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     return { kdf, key: await deriveKey(masterPassword, kdf) };
   }
 
-  // 別プロセスでマスターパスワードが変更されるなどして鍵が合わなければ、ロック扱いにする
+  // 別プロセスでのマスターパスワード変更や config.json の破損で鍵が合わなければ、ロック扱いにする
+  // (AES-GCM ではどちらが原因かを区別できない)
   async function readUnlocked() {
     const key = session.getKey();
     const config = requireInitializedConfig();
@@ -100,7 +91,10 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     } catch (error) {
       if (!(error instanceof DecryptionError)) throw error;
       session.lock();
-      throw new LockedError('マスターパスワードが変更されたため、ロックしました');
+      throw new LockedError(
+        'マスターパスワードが変更されたか、config.json が破損している可能性があるため、ロックしました。'
+        + '現在のマスターパスワードで解除してください',
+      );
     }
   }
 
@@ -121,51 +115,45 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     };
   }
 
-  // 旧形式のエントリも新規登録と同じ検証・正規化を通す（ID と enabled は補完する）
-  function normalizeLegacyEntries(entries) {
-    return entries.map((entry) => {
-      try {
-        return createEntry(entry, () => entry.id || generateId());
-      } catch (error) {
-        if (!(error instanceof ValidationError)) throw error;
-        const name = entry.label || entry.domain || '名前なし';
-        throw new ValidationError(`移行できない登録があります（${name}）: ${error.message}`, error.field);
-      }
-    });
-  }
-
   // 初期設定。旧形式 (平文) の config があれば、そのエントリを暗号化して移行する
+  // 解除を伴う処理は、受け付けた後にロックされたらアンロックしない (session.ticket)
   function setup(masterPassword) {
+    const ticket = session.ticket();
     return exclusive(async () => {
       validateMasterPassword(masterPassword);
       const config = readConfig(configDir);
       if (getConfigStatus(config).initialized) throw new StateError('マスターパスワードは設定済みです');
 
-      const entries = normalizeLegacyEntries(getLegacyEntries(config));
+      const entries = normalizeLegacyEntries(getLegacyEntries(config), {
+        generateId,
+        configPath: path.join(configDir, 'config.json'),
+      });
       const { kdf, key } = await createKeyFor(masterPassword);
       const state = await persist({ counter: config?.extensionVersionCounter ?? 0, kdf, key, entries });
-      session.unlock(key);
+      session.unlock(key, ticket);
       return state;
     });
   }
 
   // パスワード変更と同時に実行されても古い鍵を保持しないよう、書き込みと同じ順番待ちに入れる
   function unlock(masterPassword) {
+    const ticket = session.ticket();
     return exclusive(async () => {
       const { key } = await openWithPassword(requireInitializedConfig(), masterPassword, 'masterPassword');
-      session.unlock(key);
+      session.unlock(key, ticket);
       return getStatus();
     });
   }
 
   function changeMasterPassword(currentPassword, newPassword) {
+    const ticket = session.ticket();
     return exclusive(async () => {
       validateMasterPassword(newPassword, 'newPassword');
       const config = requireInitializedConfig();
       const { entries } = await openWithPassword(config, currentPassword, 'currentPassword');
       const { kdf, key } = await createKeyFor(newPassword);
       const state = await persist({ counter: config.extensionVersionCounter, kdf, key, entries });
-      session.unlock(key);
+      session.unlock(key, ticket);
       return state;
     });
   }
