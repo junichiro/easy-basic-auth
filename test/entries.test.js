@@ -83,6 +83,33 @@ describe('createEntry', () => {
     assert.equal(entry.allowHttp, true);
   });
 
+  describe('公開サフィックスとサブドメイン', () => {
+    test('公開サフィックス (TLD・共有ホスティング) に「サブドメインを含む」を付けると拒否する', () => {
+      for (const domain of ['com', 'jp', 'co.jp', 'co.uk', 'com.au', 'github.io', 'azurewebsites.net', 'herokuapp.com']) {
+        assert.throws(() => createEntry({ ...input, domain, includeSubdomains: true }, fixedId), (error) => {
+          assert.ok(error instanceof ValidationError, domain);
+          assert.equal(error.field, 'includeSubdomains');
+          return true;
+        }, domain);
+      }
+    });
+
+    test('公開サフィックスの下の自分のドメインには「サブドメインを含む」を付けられる', () => {
+      for (const domain of ['example.com', 'example.co.jp', 'myapp.azurewebsites.net', 'corp.internal', 'localhost']) {
+        assert.equal(createEntry({ ...input, domain, includeSubdomains: true }, fixedId).includeSubdomains, true, domain);
+      }
+    });
+
+    test('「サブドメインを含む」を付けなければ、公開サフィックスと同じ名前のホストも登録できる', () => {
+      assert.equal(createEntry({ ...input, domain: 'github.io' }, fixedId).domain, 'github.io');
+    });
+
+    test('既存のエントリを更新するときも拒否する', () => {
+      const existing = createEntry({ ...input, domain: 'example.com', includeSubdomains: true }, fixedId);
+      assert.throws(() => updateEntry(existing, { domain: 'co.jp' }), ValidationError);
+    });
+  });
+
   test('パスワードが空なら拒否する', () => {
     assert.throws(() => createEntry({ ...input, password: '' }, fixedId), ValidationError);
   });

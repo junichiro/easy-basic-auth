@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isPublicSuffix } from './public-suffix.js';
 
 export class ValidationError extends Error {
   constructor(message, field) {
@@ -79,6 +80,17 @@ function assertSchemeAllowed(domainInput, allowHttp) {
   );
 }
 
+// 公開サフィックスの配下すべて (他者のサイト) に認証情報が送られるのを防ぐ
+function normalizeIncludeSubdomains(input, domain) {
+  if (input !== true) return false;
+  if (!isPublicSuffix(domain)) return true;
+  throw new ValidationError(
+    `${domain} は多くの組織や利用者が共有するドメインのため、「サブドメインを含む」は使えません。`
+    + `「サブドメインを含む」を OFF にするか、自分のサイトのドメイン (例: myapp.${domain}) を登録してください`,
+    'includeSubdomains',
+  );
+}
+
 function normalizeEntryFields(fields) {
   // allowHttp を持たない以前の保存データは https のみとして扱う
   const allowHttp = fields.allowHttp === true;
@@ -87,7 +99,7 @@ function normalizeEntryFields(fields) {
   return {
     label: normalizeLabel(fields.label, domain),
     domain,
-    includeSubdomains: fields.includeSubdomains === true,
+    includeSubdomains: normalizeIncludeSubdomains(fields.includeSubdomains, domain),
     allowHttp,
     username: normalizeUsername(fields.username),
     password: normalizePassword(fields.password),
