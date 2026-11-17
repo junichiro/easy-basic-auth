@@ -70,9 +70,17 @@ function formErrorOf(form) {
 
 // ---- API ----
 
+// ロックしたら、復号した一覧と入力途中のマスターパスワードを DOM に残さない（解除後に取り直す）
+function clearUnlockedData() {
+  state = { entries: [] };
+  renderState();
+  elements.changeForm.reset();
+}
+
 // 入力途中の追加・編集フォームは閉じない（main-view ごと非表示になり、解除後にそのまま再表示される）
 function handleLocked(message) {
   status = { ...status, unlocked: false };
+  clearUnlockedData();
   renderView();
   showError(message);
   // 初期設定の直後にロックされた場合など、初期化の状態も変わっていることがあるため取り直す。
@@ -409,7 +417,7 @@ async function copyText(text, button) {
 async function lock() {
   try {
     status = await callApi('POST', '/api/lock');
-    state = { entries: [] };
+    clearUnlockedData();
     closeForm();
     renderView();
     showNotice('');
