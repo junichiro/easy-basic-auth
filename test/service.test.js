@@ -56,6 +56,18 @@ describe('拡張機能の生成', () => {
   });
 });
 
+describe('壊れた config.json', () => {
+  test('状態の取得・初期設定・解除のエラーに config.json の場所を含める', async () => {
+    const { configDir, service } = makeService();
+    const configPath = path.join(configDir, 'config.json');
+    fs.writeFileSync(configPath, '{}');
+    const includesPath = (error) => error instanceof StateError && error.message.includes(configPath);
+    assert.throws(() => service.getStatus(), includesPath);
+    await assert.rejects(service.setup(MASTER), includesPath);
+    await assert.rejects(service.unlock(MASTER), includesPath);
+  });
+});
+
 describe('初期設定', () => {
   test('最初は未初期化かつロック中', async () => {
     const { service } = makeService();

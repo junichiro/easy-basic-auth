@@ -32,6 +32,7 @@ function findEntryIndex(entries, id) {
  */
 export function createEntryService({ configDir, session, generateId = crypto.randomUUID, kdfIterations }) {
   const extensionDir = getExtensionDir(configDir);
+  const configPath = path.join(configDir, 'config.json');
   // 非同期の書き込み処理が交互に実行されて更新が失われないよう、順番に実行する
   const exclusive = createMutex();
 
@@ -44,9 +45,14 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     };
   }
 
+  // 壊れた config.json のエラーに場所を含めるため、パスを渡して判定する
+  function statusOf(config) {
+    return getConfigStatus(config, { configPath });
+  }
+
   function requireInitializedConfig() {
     const config = readConfig(configDir);
-    if (!getConfigStatus(config).initialized) throw new StateError('マスターパスワードが設定されていません');
+    if (!statusOf(config).initialized) throw new StateError('マスターパスワードが設定されていません');
     return config;
   }
 
@@ -106,7 +112,7 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
   }
 
   function getStatus() {
-    const { initialized, needsMigration } = getConfigStatus(readConfig(configDir));
+    const { initialized, needsMigration } = statusOf(readConfig(configDir));
     return {
       initialized,
       unlocked: initialized && session.isUnlocked(),
@@ -122,11 +128,11 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     return exclusive(async () => {
       validateMasterPassword(masterPassword);
       const config = readConfig(configDir);
-      if (getConfigStatus(config).initialized) throw new StateError('マスターパスワードは設定済みです');
+      if (statusOf(config).initialized) throw new StateError('マスターパスワードは設定済みです');
 
       const entries = normalizeLegacyEntries(getLegacyEntries(config), {
         generateId,
-        configPath: path.join(configDir, 'config.json'),
+        configPath,
       });
       const { kdf, key } = await createKeyFor(masterPassword);
       const state = await persist({ counter: config?.extensionVersionCounter ?? 0, kdf, key, entries });
