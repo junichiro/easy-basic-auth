@@ -231,6 +231,19 @@ function parsePort(value) {
   return port;
 }
 
+/**
+ * サーバーを起動できなかったときの案内。ポートを使っているのは、たいてい起動済みのこのツール自身。
+ * 同じ CONFIG_DIR に 2 つのサーバーを立てると保存が失われるため、別のポートでの起動は勧めない
+ */
+export function describeListenError(error, port) {
+  if (error?.code !== 'EADDRINUSE') return `[edge-basic-auth] Server error: ${error?.message ?? error}`;
+  return [
+    `ポート ${port} は使用中です。`,
+    'このツールがすでに起動している場合は、そのコンソールに表示された URL を開いてください（同じ設定フォルダに対して 2 つ起動しないでください）。',
+    '別のプログラムがこのポートを使っている場合は、環境変数 PORT に別のポート番号を指定して起動してください。',
+  ].join('\n');
+}
+
 function main() {
   const port = parsePort(process.env.PORT);
   const configDir = resolveConfigDir();
@@ -238,11 +251,7 @@ function main() {
   const server = createAppServer({ configDir, token });
 
   server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`ポート ${port} は使用中です。PORT=<番号> npm start で別のポートを指定してください。`);
-    } else {
-      console.error('[edge-basic-auth] Server error:', error);
-    }
+    console.error(describeListenError(error, port));
     process.exitCode = 1;
   });
 
