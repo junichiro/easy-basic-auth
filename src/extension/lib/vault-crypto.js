@@ -2,7 +2,7 @@
 
 export const DEFAULT_KDF_ITERATIONS = 2000000;
 const SALT_BYTES = 16;
-const IV_BYTES = 12;
+export const IV_BYTES = 12;
 
 // 暗号文の用途。設定ファイルと拡張機能の暗号文を取り違えて復号できないようにする
 export const VAULT_AAD = Object.freeze({

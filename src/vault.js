@@ -1,4 +1,4 @@
-import { deriveKey, encryptJson, decryptJson, VAULT_AAD } from './extension/lib/vault-crypto.js';
+import { deriveKey, encryptJson, decryptJson, base64ToBytes, VAULT_AAD, IV_BYTES } from './extension/lib/vault-crypto.js';
 import { StateError, BrokenConfigError } from './errors.js';
 
 // 既存の import (vault.js から BrokenConfigError を読む側) を壊さないよう再エクスポートする
@@ -29,20 +29,26 @@ function isNonNegativeInteger(value) {
   return Number.isInteger(value) && value >= 0;
 }
 
-function isBase64(value) {
-  return typeof value === 'string' && BASE64_PATTERN.test(value);
+// 空文字は BASE64_PATTERN に一致してしまうため、空でない base64 だけを有効とする
+function isNonEmptyBase64(value) {
+  return typeof value === 'string' && value !== '' && BASE64_PATTERN.test(value);
+}
+
+// encryptJson が作る長さの IV か
+function isValidIv(value) {
+  return isNonEmptyBase64(value) && base64ToBytes(value).length === IV_BYTES;
 }
 
 // deriveKey に渡せる形か (createKdfParams が作る形)
 function isValidKdf(kdf) {
   if (!isPlainObject(kdf)) return false;
   if (kdf.name !== 'PBKDF2' || !SUPPORTED_KDF_HASHES.has(kdf.hash)) return false;
-  return Number.isInteger(kdf.iterations) && kdf.iterations > 0 && isBase64(kdf.salt);
+  return Number.isInteger(kdf.iterations) && kdf.iterations > 0 && isNonEmptyBase64(kdf.salt);
 }
 
 // decryptJson に渡せる形か (encryptJson が作る形)
 function isValidSealedVault(vault) {
-  return isPlainObject(vault) && isBase64(vault.iv) && isBase64(vault.ciphertext);
+  return isPlainObject(vault) && isValidIv(vault.iv) && isNonEmptyBase64(vault.ciphertext);
 }
 
 function isValidV2Config(config) {

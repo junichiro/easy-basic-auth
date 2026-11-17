@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getConfigStatus, sealConfig, openConfig, readConfigEntries, UnsupportedConfigError, BrokenConfigError } from '../src/vault.js';
-import { createKdfParams, deriveKey, DecryptionError } from '../src/extension/lib/vault-crypto.js';
+import { createKdfParams, deriveKey, DecryptionError, bytesToBase64, IV_BYTES } from '../src/extension/lib/vault-crypto.js';
 import { StateError } from '../src/errors.js';
 
 const PASSWORD = 'master password 1234';
@@ -124,6 +124,11 @@ describe('getConfigStatus: v2 の中身の検証', () => {
     ['vault.iv が無い', (c) => { delete c.vault.iv; return c; }],
     ['vault.ciphertext が数値', (c) => ({ ...c, vault: { ...c.vault, ciphertext: 1 } })],
     ['vault.iv が base64 でない', (c) => ({ ...c, vault: { ...c.vault, iv: '!!' } })],
+    ['kdf.salt が空文字', (c) => ({ ...c, kdf: { ...c.kdf, salt: '' } })],
+    ['vault.iv が空文字', (c) => ({ ...c, vault: { ...c.vault, iv: '' } })],
+    ['vault.ciphertext が空文字', (c) => ({ ...c, vault: { ...c.vault, ciphertext: '' } })],
+    ['vault.iv の長さが短い', (c) => ({ ...c, vault: { ...c.vault, iv: bytesToBase64(new Uint8Array(IV_BYTES - 1)) } })],
+    ['vault.iv の長さが長い', (c) => ({ ...c, vault: { ...c.vault, iv: bytesToBase64(new Uint8Array(IV_BYTES + 4)) } })],
   ];
   for (const [label, change] of brokenV2) {
     test(`壊れた v2 (${label}) は BrokenConfigError にする`, async () => {
