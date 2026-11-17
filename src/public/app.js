@@ -61,8 +61,16 @@ function showMessage(element, message) {
   element.hidden = !message;
 }
 
-const showError = (message) => showMessage(elements.globalError, message);
-const showNotice = (message) => showMessage(elements.globalNotice, message);
+// エラーと成功の案内は同時に出さない（前の操作の案内が残って、結果を取り違えないようにする）
+function showError(message) {
+  showMessage(elements.globalError, message);
+  if (message) showMessage(elements.globalNotice, '');
+}
+
+function showNotice(message) {
+  showMessage(elements.globalNotice, message);
+  if (message) showMessage(elements.globalError, '');
+}
 
 function formErrorOf(form) {
   return form.querySelector('.form-error');
