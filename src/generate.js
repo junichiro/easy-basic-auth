@@ -45,6 +45,7 @@ export function formatExtensionVersion(counter) {
 }
 
 const VERSION_PATTERN = /^1\.(\d+)\.(\d+)$/;
+const MAX_COUNTER = VERSION_PART_LIMIT * VERSION_PART_LIMIT - 1;
 
 /**
  * 書き出し済みの manifest.json の version をカウンターに戻す。
@@ -63,7 +64,9 @@ export function readExtensionCounter(extensionDir) {
   if (!match) return 0;
   const [high, low] = [Number(match[1]), Number(match[2])];
   if (low >= VERSION_PART_LIMIT) return 0;
-  return high * VERSION_PART_LIMIT + low;
+  const counter = high * VERSION_PART_LIMIT + low;
+  // 次の version (counter + 1) も各部分が上限内に収まるものだけを使う
+  return counter < MAX_COUNTER ? counter : 0;
 }
 
 export function buildManifest(entries, counter) {

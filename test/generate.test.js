@@ -103,6 +103,8 @@ describe('readExtensionCounter', () => {
     assert.equal(readExtensionCounter(writeManifest('{')), 0);
     assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '2.0.1' }))), 0);
     assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '1.0.70000' }))), 0);
+    assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '1.70000.0' }))), 0);
+    assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '1.65535.65535' }))), 0);
     assert.equal(readExtensionCounter(writeManifest('null')), 0);
   });
 });
