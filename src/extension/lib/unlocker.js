@@ -53,6 +53,13 @@ export function createUnlocker({ dnr, storage, action, loadVault, manifestVersio
     return vault.extensionVersion !== undefined && vault.extensionVersion !== manifestVersion;
   }
 
+  // 前回の解除で登録したルールが残ると、設定 UI で無効化・削除したエントリの認証情報が送られ続ける。
+  // 解除を断るときはロック状態にもする (exclusive の中で呼ばれるので、公開の lock ではなく内部の lock を使う)
+  async function refuseStaleExtension() {
+    await lock();
+    return { ok: false, error: STALE_EXTENSION_MESSAGE };
+  }
+
   async function decryptEntries(password, vault) {
     const key = await deriveKey(password, vault.kdf);
     const { entries } = await decryptJson(key, vault, VAULT_AAD.extension);
@@ -61,7 +68,7 @@ export function createUnlocker({ dnr, storage, action, loadVault, manifestVersio
 
   async function unlock(password) {
     const vault = await loadVault();
-    if (isStaleExtension(vault)) return { ok: false, error: STALE_EXTENSION_MESSAGE };
+    if (isStaleExtension(vault)) return refuseStaleExtension();
     let entries;
     try {
       entries = await decryptEntries(password, vault);

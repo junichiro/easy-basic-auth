@@ -117,6 +117,24 @@ describe('createUnlocker の version 確認', () => {
     assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
   });
 
+  test('解除済みのまま version が食い違ったら、解除を断るとともにロックする', async () => {
+    let extensionVersion = '1.0.1';
+    const fake = createFakeChrome({
+      loadVault: async () => ({ ...vault, extensionVersion }),
+      manifestVersion: '1.0.1',
+    });
+    const unlocker = createUnlocker(fake.deps);
+    assert.equal((await unlocker.unlock(MASTER)).ok, true);
+    // 設定 UI で保存したが拡張機能を再読み込みしていない状態
+    extensionVersion = '1.0.2';
+    const result = await unlocker.unlock(MASTER);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /再読み込み/);
+    assert.equal(fake.sessionRules().length, 0);
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
+    assert.equal(fake.badge.text, LOCKED_BADGE_TEXT);
+  });
+
   test('vault の version が manifest と一致すれば解除する', async () => {
     const fake = createFakeChrome({
       loadVault: async () => ({ ...vault, extensionVersion: '1.0.1' }),
