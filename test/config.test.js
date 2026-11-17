@@ -88,6 +88,13 @@ describe('readConfig / writeConfig', () => {
     });
   });
 
+  test('先頭に BOM が付いた config.json も読める (Windows のエディタで手直しした場合など)', () => {
+    const dir = makeTempDir();
+    const config = { version: 1, entries: [] };
+    fs.writeFileSync(path.join(dir, 'config.json'), `\uFEFF${JSON.stringify(config)}`);
+    assert.deepEqual(readConfig(dir), config);
+  });
+
   test('一時ファイルを残さない', () => {
     const dir = makeTempDir();
     writeConfig(dir, { version: 2 });
