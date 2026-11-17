@@ -45,7 +45,8 @@ function createFakeChrome({ loadVault = async () => vault, manifestVersion = '1.
         },
       },
       storage: {
-        get: async (key) => ({ [key]: storage[key] }),
+        // chrome.storage.session.get はキー 1 つでも配列でも受け付ける
+        get: async (keys) => Object.fromEntries([keys].flat().map((key) => [key, storage[key]])),
         set: async (items) => { Object.assign(storage, items); },
       },
       action: {
@@ -72,7 +73,7 @@ describe('createUnlocker', () => {
     const unlocker = createUnlocker(fake.deps);
     assert.deepEqual(await unlocker.unlock(MASTER), { ok: true, ruleCount: EXPECTED_RULE_COUNT });
     assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
-    assert.deepEqual(await unlocker.getStatus(), { unlocked: true });
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: true, entryCount: 2 });
     assert.equal(fake.badge.text, '');
   });
 
@@ -148,6 +149,26 @@ describe('createUnlocker の version 確認', () => {
   test('version を記録していない古い vault でも解除できる', async () => {
     const fake = createFakeChrome();
     assert.equal((await createUnlocker(fake.deps).unlock(MASTER)).ok, true);
+  });
+});
+
+describe('createUnlocker の有効なエントリ数', () => {
+  test('有効なエントリが 0 件の vault で解除すると、状態に 0 件と返す (ポップアップで案内するため)', async () => {
+    const kdf = createKdfParams({ iterations: 1000 });
+    const key = await deriveKey(MASTER, kdf);
+    const emptyVault = await buildExtensionVault([], key, kdf);
+    const fake = createFakeChrome({ loadVault: async () => emptyVault });
+    const unlocker = createUnlocker(fake.deps);
+    assert.equal((await unlocker.unlock(MASTER)).ok, true);
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: true, entryCount: 0 });
+  });
+
+  test('ロックすると件数は返さない', async () => {
+    const fake = createFakeChrome();
+    const unlocker = createUnlocker(fake.deps);
+    await unlocker.unlock(MASTER);
+    await unlocker.lock();
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
   });
 });
 

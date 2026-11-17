@@ -5,6 +5,7 @@ const elements = {
   password: document.getElementById('password'),
   unlockButton: document.getElementById('unlock-button'),
   unlockedPanel: document.getElementById('unlocked-panel'),
+  unlockedText: document.getElementById('unlocked-text'),
   lockButton: document.getElementById('lock-button'),
   error: document.getElementById('error'),
 };
@@ -14,10 +15,14 @@ function showError(message) {
   elements.error.hidden = !message;
 }
 
-function render({ unlocked }) {
+const UNLOCKED_MESSAGE = '登録済みのサイトに Basic 認証ヘッダーを付けています。';
+const NO_ENTRIES_MESSAGE = '有効な登録がないため、認証ヘッダーは付けていません。設定 UI でサイトを登録・有効にし、拡張機能を再読み込みしてください。';
+
+function render({ unlocked, entryCount }) {
   elements.statusText.textContent = unlocked ? '🔓 解除済み' : '🔒 ロック中';
   elements.unlockForm.hidden = unlocked;
   elements.unlockedPanel.hidden = !unlocked;
+  elements.unlockedText.textContent = entryCount === 0 ? NO_ENTRIES_MESSAGE : UNLOCKED_MESSAGE;
   if (!unlocked) elements.password.focus();
 }
 

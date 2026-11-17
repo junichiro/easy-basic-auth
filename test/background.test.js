@@ -18,7 +18,8 @@ function installFakeChrome() {
     },
     storage: {
       session: {
-        get: async (key) => (key in sessionStorage ? { [key]: sessionStorage[key] } : {}),
+        get: async (keys) => Object.fromEntries([keys].flat().filter((key) => key in sessionStorage)
+          .map((key) => [key, sessionStorage[key]])),
         set: async (items) => { Object.assign(sessionStorage, items); },
       },
     },
