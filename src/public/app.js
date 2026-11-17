@@ -66,9 +66,9 @@ function formErrorOf(form) {
 
 // ---- API ----
 
+// 入力途中の追加・編集フォームは閉じない（main-view ごと非表示になり、解除後にそのまま再表示される）
 function handleLocked(message) {
   status = { ...status, unlocked: false };
-  closeForm();
   renderView();
   showError(message);
   // 初期設定の直後にロックされた場合など、初期化の状態も変わっていることがあるため取り直す。
@@ -272,6 +272,9 @@ async function submitEntryForm(event) {
       ? await callApi('PUT', `/api/entries/${encodeURIComponent(editingId)}`, input)
       : await callApi('POST', '/api/entries', input);
   } catch (error) {
+    // 保存中にロックされた場合、案内は handleLocked が全体のエラー欄に表示済み。
+    // 非表示のフォーム内には書かず、入力内容を残したまま解除後の再保存を待つ
+    if (!status.unlocked) return;
     showMessage(elements.formError, error.message);
     return;
   }
