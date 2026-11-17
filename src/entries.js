@@ -62,9 +62,11 @@ function normalizePassword(input) {
   return password;
 }
 
+// ラベルを省略するとドメインをラベルにする。ドメインは 100 文字を超えうるため、
+// ドメインと同じラベル (既定のラベル) には文字数の上限を適用しない
 function normalizeLabel(input, domain) {
   const label = asString(input).trim();
-  if (label.length > MAX_LABEL_LENGTH) {
+  if (label.length > MAX_LABEL_LENGTH && label !== domain) {
     throw new ValidationError(`ラベルは ${MAX_LABEL_LENGTH} 文字以内にしてください`, 'label');
   }
   return label || domain;
