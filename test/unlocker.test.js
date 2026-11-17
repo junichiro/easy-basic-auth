@@ -21,7 +21,7 @@ before(async () => {
 const yieldToOthers = () => new Promise((resolve) => setImmediate(resolve));
 
 // chrome.* API の最小限のフェイク
-function createFakeChrome() {
+function createFakeChrome({ loadVault = async () => vault, manifestVersion = '1.0.1' } = {}) {
   let sessionRules = [];
   const storage = {};
   const badge = { text: null };
@@ -50,7 +50,8 @@ function createFakeChrome() {
         setBadgeText: async ({ text }) => { badge.text = text; },
         setBadgeBackgroundColor: async () => {},
       },
-      loadVault: async () => vault,
+      loadVault,
+      manifestVersion,
     },
   };
 }
@@ -99,6 +100,34 @@ describe('createUnlocker', () => {
     assert.equal(fake.sessionRules().length, 0);
     assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
     assert.equal(fake.badge.text, LOCKED_BADGE_TEXT);
+  });
+});
+
+describe('createUnlocker の version 確認', () => {
+  test('vault の version が manifest と違えば、再読み込みを促して解除しない', async () => {
+    const fake = createFakeChrome({
+      loadVault: async () => ({ ...vault, extensionVersion: '1.0.2' }),
+      manifestVersion: '1.0.1',
+    });
+    const unlocker = createUnlocker(fake.deps);
+    const result = await unlocker.unlock(MASTER);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /再読み込み/);
+    assert.equal(fake.sessionRules().length, 0);
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
+  });
+
+  test('vault の version が manifest と一致すれば解除する', async () => {
+    const fake = createFakeChrome({
+      loadVault: async () => ({ ...vault, extensionVersion: '1.0.1' }),
+      manifestVersion: '1.0.1',
+    });
+    assert.deepEqual(await createUnlocker(fake.deps).unlock(MASTER), { ok: true, ruleCount: 2 });
+  });
+
+  test('version を記録していない古い vault でも解除できる', async () => {
+    const fake = createFakeChrome();
+    assert.equal((await createUnlocker(fake.deps).unlock(MASTER)).ok, true);
   });
 });
 

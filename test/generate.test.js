@@ -100,6 +100,15 @@ describe('buildExtensionVault', () => {
   });
 });
 
+describe('buildExtensionVault の version', () => {
+  test('生成した拡張機能の version を vault に記録する', async () => {
+    const kdf = createKdfParams({ iterations: 1000 });
+    const key = await deriveKey('master password!!', kdf);
+    const vault = await buildExtensionVault([baseEntry], key, kdf, '1.0.12');
+    assert.equal(vault.extensionVersion, '1.0.12');
+  });
+});
+
 describe('writeExtension', () => {
   const manifest = buildManifest([], 1);
   const vault = { version: 1, kdf: {}, iv: 'aXY=', ciphertext: 'Y3Q=' };

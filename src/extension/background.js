@@ -9,6 +9,7 @@ const unlocker = createUnlocker({
     if (!res.ok) throw new Error(`vault.json を読み込めませんでした (${res.status})`);
     return res.json();
   },
+  manifestVersion: chrome.runtime.getManifest().version,
 });
 
 const handleMessage = createMessageHandler(unlocker, chrome.runtime.id);

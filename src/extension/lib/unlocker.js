@@ -5,6 +5,7 @@ import { createMutex } from './mutex.js';
 export const LOCKED_BADGE_TEXT = 'LOCK';
 const LOCKED_BADGE_COLOR = '#8a8886';
 const UNLOCKED_STORAGE_KEY = 'unlocked';
+const STALE_EXTENSION_MESSAGE = '設定が更新されています。edge://extensions で拡張機能を再読み込みしてから解除してください';
 
 /**
  * vault を復号してセッションルール (メモリのみ・ブラウザ終了で消える) を登録する。
@@ -15,8 +16,9 @@ const UNLOCKED_STORAGE_KEY = 'unlocked';
  * @param {object} deps.storage chrome.storage.session (メモリのみ)
  * @param {object} deps.action chrome.action
  * @param {() => Promise<object>} deps.loadVault vault.json を読み込む関数
+ * @param {string} deps.manifestVersion 動作中の拡張機能の version (chrome.runtime.getManifest().version)
  */
-export function createUnlocker({ dnr, storage, action, loadVault }) {
+export function createUnlocker({ dnr, storage, action, loadVault, manifestVersion }) {
   // ルールの読み出しと置き換えの間に別の解除・ロックが割り込まないよう、順番に実行する
   const exclusive = createMutex();
 
@@ -44,17 +46,25 @@ export function createUnlocker({ dnr, storage, action, loadVault }) {
     if (!unlocked) await action.setBadgeBackgroundColor({ color: LOCKED_BADGE_COLOR });
   }
 
-  async function decryptEntries(password) {
-    const vault = await loadVault();
+  // vault.json はディスクから毎回読まれるが、manifest (host_permissions) は再読み込みまで古いまま。
+  // 食い違ったまま解除すると、新しいドメインにヘッダーが付かないので解除しない。
+  // version を記録していない古い vault は確認できないため通す
+  function isStaleExtension(vault) {
+    return vault.extensionVersion !== undefined && vault.extensionVersion !== manifestVersion;
+  }
+
+  async function decryptEntries(password, vault) {
     const key = await deriveKey(password, vault.kdf);
     const { entries } = await decryptJson(key, vault, VAULT_AAD.extension);
     return entries;
   }
 
   async function unlock(password) {
+    const vault = await loadVault();
+    if (isStaleExtension(vault)) return { ok: false, error: STALE_EXTENSION_MESSAGE };
     let entries;
     try {
-      entries = await decryptEntries(password);
+      entries = await decryptEntries(password, vault);
     } catch (error) {
       if (error instanceof DecryptionError) return { ok: false, error: 'マスターパスワードが違います' };
       throw error;

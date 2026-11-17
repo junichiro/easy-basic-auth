@@ -62,9 +62,13 @@ export function selectExtensionEntries(entries) {
   ));
 }
 
-export async function buildExtensionVault(entries, key, kdf) {
+/**
+ * @param {string} [extensionVersion] 同時に生成する manifest の version。
+ *   拡張機能が再読み込みされずに古い manifest のまま動いていることを検知するために使う
+ */
+export async function buildExtensionVault(entries, key, kdf, extensionVersion) {
   const sealed = await encryptJson(key, { entries: selectExtensionEntries(entries) }, VAULT_AAD.extension);
-  return { version: EXTENSION_VAULT_VERSION, kdf, ...sealed };
+  return { version: EXTENSION_VAULT_VERSION, extensionVersion, kdf, ...sealed };
 }
 
 function copyExtensionSources(extensionDir) {

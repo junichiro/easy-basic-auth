@@ -53,7 +53,7 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
   async function persist({ counter, kdf, key, entries }) {
     const nextCounter = counter + 1;
     const config = await sealConfig({ counter: nextCounter, kdf, key, entries });
-    const vault = await buildExtensionVault(entries, key, kdf);
+    const vault = await buildExtensionVault(entries, key, kdf, formatExtensionVersion(nextCounter));
     writeConfig(configDir, config);
     writeExtension(extensionDir, { manifest: buildManifest(entries, nextCounter), vault });
     return toState(entries, nextCounter);

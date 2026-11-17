@@ -45,6 +45,17 @@ async function decryptExtensionVault(configDir, masterPassword) {
   return decryptJson(key, vault, VAULT_AAD.extension);
 }
 
+describe('拡張機能の生成', () => {
+  test('vault.json に manifest.json と同じ version を記録する', async () => {
+    const { configDir, service } = makeService();
+    await service.setup(MASTER);
+    await service.addEntry(entryInput);
+    const manifest = readJson(configDir, 'extension', 'manifest.json');
+    const vault = readJson(configDir, 'extension', 'vault.json');
+    assert.equal(vault.extensionVersion, manifest.version);
+  });
+});
+
 describe('初期設定', () => {
   test('最初は未初期化かつロック中', async () => {
     const { service } = makeService();
