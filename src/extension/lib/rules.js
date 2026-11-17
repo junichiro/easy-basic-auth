@@ -1,9 +1,12 @@
 // Node と拡張機能の両方で使うため、Node 固有の API (Buffer など) は使わない
 import { bytesToBase64 } from './vault-crypto.js';
 
+// declarativeNetRequest の ResourceType をすべて列挙し、登録ホストへの全リクエストに付与する。
+// 並び順は公式ドキュメントの enum に合わせる。
 const RESOURCE_TYPES = [
-  'main_frame', 'sub_frame', 'xmlhttprequest', 'script', 'stylesheet',
-  'image', 'font', 'media', 'websocket', 'other',
+  'main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font',
+  'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket',
+  'webtransport', 'webbundle', 'other',
 ];
 
 export function escapeRegExp(text) {

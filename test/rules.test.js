@@ -60,8 +60,9 @@ describe('buildRules', () => {
   test('対象のリソースタイプを指定する', () => {
     const [rule] = buildRules([baseEntry]);
     assert.deepEqual(rule.condition.resourceTypes, [
-      'main_frame', 'sub_frame', 'xmlhttprequest', 'script', 'stylesheet',
-      'image', 'font', 'media', 'websocket', 'other',
+      'main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font',
+      'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket',
+      'webtransport', 'webbundle', 'other',
     ]);
   });
 
