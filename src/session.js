@@ -10,19 +10,50 @@ export class LockedError extends Error {
 
 /**
  * 設定 UI のロック状態を管理する。導出した鍵はメモリ上にだけ保持し、
- * 一定時間使われなければ破棄する（タイマーではなくアクセス時に判定する）。
+ * 一定時間使われなければ破棄する。API へのアクセスがなくても破棄されるようタイマーを使い、
+ * アクセス時にも経過時間を判定する（タイマーが遅れた場合や now を差し替えたテストのため）。
  */
-export function createSession({ idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS, now = Date.now } = {}) {
+export function createSession({
+  idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
+  now = Date.now,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
   let key = null;
   let lastAccessAt = 0;
   let lockReason = null;
   // lock() のたびに増える。解除処理の開始後にロックされたかを判定するために使う
   let lockCount = 0;
+  let idleTimer = null;
+
+  function cancelIdleTimer() {
+    if (idleTimer === null) return;
+    clearTimer(idleTimer);
+    idleTimer = null;
+  }
+
+  function expire() {
+    cancelIdleTimer();
+    key = null;
+    lockReason = IDLE_LOCK_MESSAGE;
+  }
+
+  // 最終アクセスから idleTimeoutMs 後に鍵を破棄するタイマーを張り直す
+  function scheduleIdleTimer() {
+    cancelIdleTimer();
+    idleTimer = setTimer(expire, idleTimeoutMs);
+    // タイマーのせいでプロセスが終了できなくならないようにする
+    idleTimer?.unref?.();
+  }
+
+  function touch() {
+    lastAccessAt = now();
+    scheduleIdleTimer();
+  }
 
   function expireIfIdle() {
     if (!key || now() - lastAccessAt <= idleTimeoutMs) return;
-    key = null;
-    lockReason = IDLE_LOCK_MESSAGE;
+    expire();
   }
 
   return {
@@ -37,11 +68,12 @@ export function createSession({ idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS, now = D
     unlock(newKey, ticket = lockCount) {
       if (ticket !== lockCount) return false;
       key = newKey;
-      lastAccessAt = now();
       lockReason = null;
+      touch();
       return true;
     },
     lock() {
+      cancelIdleTimer();
       key = null;
       lockReason = null;
       lockCount += 1;
@@ -53,7 +85,7 @@ export function createSession({ idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS, now = D
     getKey() {
       expireIfIdle();
       if (!key) throw new LockedError(lockReason ?? undefined);
-      lastAccessAt = now();
+      touch();
       return key;
     },
   };
