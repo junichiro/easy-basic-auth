@@ -85,7 +85,11 @@ describe('createEntry', () => {
 
   describe('公開サフィックスとサブドメイン', () => {
     test('公開サフィックス (TLD・共有ホスティング) に「サブドメインを含む」を付けると拒否する', () => {
-      for (const domain of ['com', 'jp', 'co.jp', 'co.uk', 'com.au', 'github.io', 'azurewebsites.net', 'herokuapp.com']) {
+      for (const domain of [
+        'com', 'jp', 'co.jp', 'co.uk', 'com.au', 'github.io', 'azurewebsites.net', 'herokuapp.com',
+        // 事業者が利用者で共有する、さらに下の階層
+        'a.run.app', 'r.appspot.com', 's3.amazonaws.com', 'blob.core.windows.net',
+      ]) {
         assert.throws(() => createEntry({ ...input, domain, includeSubdomains: true }, fixedId), (error) => {
           assert.ok(error instanceof ValidationError, domain);
           assert.equal(error.field, 'includeSubdomains');
@@ -95,7 +99,11 @@ describe('createEntry', () => {
     });
 
     test('公開サフィックスの下の自分のドメインには「サブドメインを含む」を付けられる', () => {
-      for (const domain of ['example.com', 'example.co.jp', 'myapp.azurewebsites.net', 'corp.internal', 'localhost']) {
+      for (const domain of [
+        'example.com', 'example.co.jp', 'myapp.azurewebsites.net', 'corp.internal', 'localhost',
+        // 社内向けに使われる 1 ラベルの名前 (wiki.corp や jira.intranet などをまとめて登録する)
+        'internal', 'corp', 'lan', 'home', 'local', 'intranet',
+      ]) {
         assert.equal(createEntry({ ...input, domain, includeSubdomains: true }, fixedId).includeSubdomains, true, domain);
       }
     });
