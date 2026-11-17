@@ -71,6 +71,9 @@ function handleLocked(message) {
   closeForm();
   renderView();
   showError(message);
+  // 初期設定の直後にロックされた場合など、初期化の状態も変わっていることがあるため取り直す。
+  // 失敗してもロックの案内は表示済みなので、ここでは握りつぶす
+  loadStatus().catch(() => {});
 }
 
 async function callApi(method, path, body) {

@@ -98,6 +98,12 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     }
   }
 
+  // ticket の取得後にロックされていたら、成功扱いにせず理由を添えて LockedError にする
+  function unlockSession(key, ticket, message) {
+    if (session.unlock(key, ticket)) return;
+    throw new LockedError(message);
+  }
+
   function mutate(changeEntries) {
     return exclusive(async () => {
       const { config, key, entries } = await readUnlocked();
@@ -130,7 +136,7 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
       });
       const { kdf, key } = await createKeyFor(masterPassword);
       const state = await persist({ counter: config?.extensionVersionCounter ?? 0, kdf, key, entries });
-      session.unlock(key, ticket);
+      unlockSession(key, ticket, '設定は保存しましたが、処理中にロックされました。マスターパスワードで解除してください');
       return state;
     });
   }
@@ -140,7 +146,7 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     const ticket = session.ticket();
     return exclusive(async () => {
       const { key } = await openWithPassword(requireInitializedConfig(), masterPassword, 'masterPassword');
-      session.unlock(key, ticket);
+      unlockSession(key, ticket, '解除処理中にロックされたため、解除しませんでした。もう一度解除してください');
       return getStatus();
     });
   }
@@ -153,7 +159,7 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
       const { entries } = await openWithPassword(config, currentPassword, 'currentPassword');
       const { kdf, key } = await createKeyFor(newPassword);
       const state = await persist({ counter: config.extensionVersionCounter, kdf, key, entries });
-      session.unlock(key, ticket);
+      unlockSession(key, ticket, '変更は保存しましたが、処理中にロックされました。新しいマスターパスワードで解除してください');
       return state;
     });
   }

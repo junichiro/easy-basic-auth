@@ -125,7 +125,8 @@ describe('ロックとアンロック', () => {
     service.lock();
     const pending = service.unlock(MASTER);
     service.lock();
-    await pending;
+    await assert.rejects(pending, (error) => error instanceof LockedError
+      && error.message.includes('解除処理中にロックされた'));
     assert.equal(service.getStatus().unlocked, false);
   });
 
@@ -134,9 +135,24 @@ describe('ロックとアンロック', () => {
     await service.setup(MASTER);
     const pending = service.changeMasterPassword(MASTER, 'next master password 5678');
     service.lock();
-    await pending;
+    await assert.rejects(pending, (error) => error instanceof LockedError
+      && error.message.includes('変更は保存しました') && error.message.includes('新しいマスターパスワード'));
     assert.equal(service.getStatus().unlocked, false);
     await service.unlock('next master password 5678');
+    assert.equal(service.getStatus().unlocked, true);
+  });
+
+  test('初期設定中にロックされたら、設定は保存するがロックのままにしてエラーで知らせる', async () => {
+    const { service } = makeService();
+    const pending = service.setup(MASTER);
+    service.lock();
+    await assert.rejects(pending, (error) => error instanceof LockedError
+      && error.message.includes('設定は保存しました'));
+    assert.deepEqual(
+      { initialized: service.getStatus().initialized, unlocked: service.getStatus().unlocked },
+      { initialized: true, unlocked: false },
+    );
+    await service.unlock(MASTER);
     assert.equal(service.getStatus().unlocked, true);
   });
 
