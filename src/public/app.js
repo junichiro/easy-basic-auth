@@ -88,6 +88,17 @@ function handleLocked(message) {
   loadStatus().catch(() => {});
 }
 
+// 409: 別のタブでの初期設定や config.json の削除などで、サーバーの状態が画面と食い違っている。
+// 画面を状態に合わせ直す（状態の取得自体が 409 の場合や、取り直しの最中は繰り返さない）
+let reloadingStatus = false;
+
+function handleConflict(path, message) {
+  if (path === '/api/status' || reloadingStatus) return;
+  reloadingStatus = true;
+  showError(message);
+  loadStatus().catch(() => {}).finally(() => { reloadingStatus = false; });
+}
+
 async function callApi(method, path, body) {
   const headers = { Authorization: `Bearer ${token}` };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -102,6 +113,7 @@ async function callApi(method, path, body) {
     throw new Error('トークンが無効です。サーバーのコンソールに表示された URL を開き直してください。');
   }
   if (res.status === 423) handleLocked(payload.error);
+  if (res.status === 409) handleConflict(path, payload.error);
   if (!res.ok) throw new Error(payload.error || `リクエストに失敗しました (${res.status})`);
   return payload;
 }
