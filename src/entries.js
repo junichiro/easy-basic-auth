@@ -127,18 +127,19 @@ export function createEntry(input, generateId = crypto.randomUUID) {
 export function updateEntry(existing, input) {
   const changes = pickEditableFields(input);
   if (!changes.password) delete changes.password;
-  const updated = normalizeEntryFields({ ...existing, ...changes });
-  if (followsDefaultLabel(existing, changes, updated)) updated.label = updated.domain;
-  return { id: existing.id, ...updated };
+  // 追従させるときはラベルを空にして、正規化で新しいドメインをラベルにする
+  // (古いラベル = 古いドメインは 100 文字を超えうるため、文字数の確認より前に置き換える)
+  if (followsDefaultLabel(existing, changes)) changes.label = '';
+  return { id: existing.id, ...normalizeEntryFields({ ...existing, ...changes }) };
 }
 
 /**
  * 既定のラベル (ラベル = ドメイン) のままドメインだけが変わった場合、ラベルも新しいドメインに追従させるかを判定する。
  * ユーザーが別のラベルを明示的に送ってきた場合は追従させない。
  */
-function followsDefaultLabel(existing, changes, updated) {
+function followsDefaultLabel(existing, changes) {
   if (existing.label !== existing.domain) return false;
-  if (updated.domain === existing.domain) return false;
+  if (changes.domain === undefined || normalizeDomain(changes.domain) === existing.domain) return false;
   const submittedLabel = asString(changes.label ?? existing.label).trim();
   return submittedLabel === '' || submittedLabel === existing.domain;
 }

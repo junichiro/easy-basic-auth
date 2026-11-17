@@ -146,6 +146,13 @@ describe('updateEntry', () => {
     assert.equal(updateEntry(entry, { label: longDomain, username: 'v' }).username, 'v');
   });
 
+  test('100 文字を超えるドメインを既定のラベルにしたエントリも、ドメインを変えられる (ラベルは新しいドメインに追従する)', () => {
+    const longDomain = `${'a'.repeat(60)}.${'b'.repeat(40)}.example.com`;
+    const entry = createEntry({ domain: longDomain, username: 'u', password: 'p' }, fixedId);
+    assert.equal(updateEntry(entry, { label: longDomain, domain: 'short.example.com' }).label, 'short.example.com');
+    assert.equal(updateEntry(entry, { domain: 'short.example.com' }).label, 'short.example.com');
+  });
+
   test('ドメインと異なる 100 文字を超えるラベルは拒否する', () => {
     assert.throws(() => updateEntry(existing, { label: 'あ'.repeat(101) }), ValidationError);
   });
