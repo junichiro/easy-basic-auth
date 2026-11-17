@@ -26,11 +26,15 @@ function enabledEntries(entries) {
   return entries.filter((entry) => entry.enabled);
 }
 
+// http (平文) を許可したエントリだけ *:// にし、それ以外は https:// に限る
+function buildEntryHostPermissions({ domain, includeSubdomains, allowHttp }) {
+  const scheme = allowHttp === true ? '*' : 'https';
+  const hosts = includeSubdomains ? [domain, `*.${domain}`] : [domain];
+  return hosts.map((host) => `${scheme}://${host}/*`);
+}
+
 function buildHostPermissions(entries) {
-  const permissions = enabledEntries(entries).flatMap(({ domain, includeSubdomains }) => (
-    includeSubdomains ? [`*://${domain}/*`, `*://*.${domain}/*`] : [`*://${domain}/*`]
-  ));
-  return [...new Set(permissions)];
+  return [...new Set(enabledEntries(entries).flatMap(buildEntryHostPermissions))];
 }
 
 // Chromium の version は各部分が 0〜65535 なので、超えたら次の部分に繰り上げる
@@ -38,6 +42,31 @@ const VERSION_PART_LIMIT = 65536;
 
 export function formatExtensionVersion(counter) {
   return `1.${Math.floor(counter / VERSION_PART_LIMIT)}.${counter % VERSION_PART_LIMIT}`;
+}
+
+const VERSION_PATTERN = /^1\.(\d+)\.(\d+)$/;
+const MAX_COUNTER = VERSION_PART_LIMIT * VERSION_PART_LIMIT - 1;
+
+/**
+ * 書き出し済みの manifest.json の version をカウンターに戻す。
+ * 無い・読めない・このツールの形式でなければ 0 にする。
+ * config.json を消して初期設定し直したときや、config.json の書き込みに失敗したときに、
+ * 読み込み済みの拡張機能と同じ version を別の内容で使い回さないために使う
+ */
+export function readExtensionCounter(extensionDir) {
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
+  } catch {
+    return 0;
+  }
+  const match = VERSION_PATTERN.exec(manifest?.version ?? '');
+  if (!match) return 0;
+  const [high, low] = [Number(match[1]), Number(match[2])];
+  if (low >= VERSION_PART_LIMIT) return 0;
+  const counter = high * VERSION_PART_LIMIT + low;
+  // 次の version (counter + 1) も各部分が上限内に収まるものだけを使う
+  return counter < MAX_COUNTER ? counter : 0;
 }
 
 export function buildManifest(entries, counter) {
@@ -57,8 +86,8 @@ export function buildManifest(entries, counter) {
  * 拡張機能に渡すのは、有効なエントリのルール生成に必要な項目だけにする。
  */
 export function selectExtensionEntries(entries) {
-  return enabledEntries(entries).map(({ domain, includeSubdomains, username, password }) => (
-    { domain, includeSubdomains, username, password }
+  return enabledEntries(entries).map(({ domain, includeSubdomains, allowHttp, username, password }) => (
+    { domain, includeSubdomains, allowHttp: allowHttp === true, username, password }
   ));
 }
 

@@ -30,6 +30,10 @@ const elements = {
   extensionVersion: byId('extension-version'),
   subdomainNotice: byId('subdomain-notice'),
   subdomainNoticeList: byId('subdomain-notice-list'),
+  allowHttpCheckbox: byId('field-allow-http'),
+  allowHttpWarning: byId('allow-http-warning'),
+  httpNotice: byId('http-notice'),
+  httpNoticeList: byId('http-notice-list'),
 };
 
 let status = { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: null };
@@ -57,8 +61,16 @@ function showMessage(element, message) {
   element.hidden = !message;
 }
 
-const showError = (message) => showMessage(elements.globalError, message);
-const showNotice = (message) => showMessage(elements.globalNotice, message);
+// エラーと成功の案内は同時に出さない（前の操作の案内が残って、結果を取り違えないようにする）
+function showError(message) {
+  showMessage(elements.globalError, message);
+  if (message) showMessage(elements.globalNotice, '');
+}
+
+function showNotice(message) {
+  showMessage(elements.globalNotice, message);
+  if (message) showMessage(elements.globalError, '');
+}
 
 function formErrorOf(form) {
   return form.querySelector('.form-error');
@@ -66,14 +78,33 @@ function formErrorOf(form) {
 
 // ---- API ----
 
+// ロックしたら、復号した一覧と入力途中のマスターパスワードを DOM に残さない（解除後に取り直す）
+function clearUnlockedData() {
+  state = { entries: [] };
+  renderState();
+  elements.changeForm.reset();
+}
+
 // 入力途中の追加・編集フォームは閉じない（main-view ごと非表示になり、解除後にそのまま再表示される）
 function handleLocked(message) {
   status = { ...status, unlocked: false };
+  clearUnlockedData();
   renderView();
   showError(message);
   // 初期設定の直後にロックされた場合など、初期化の状態も変わっていることがあるため取り直す。
   // 失敗してもロックの案内は表示済みなので、ここでは握りつぶす
   loadStatus().catch(() => {});
+}
+
+// 409: 別のタブでの初期設定や config.json の削除などで、サーバーの状態が画面と食い違っている。
+// 画面を状態に合わせ直す（状態の取得自体が 409 の場合や、取り直しの最中は繰り返さない）
+let reloadingStatus = false;
+
+function handleConflict(path, message) {
+  if (path === '/api/status' || reloadingStatus) return;
+  reloadingStatus = true;
+  showError(message);
+  loadStatus().catch(() => {}).finally(() => { reloadingStatus = false; });
 }
 
 async function callApi(method, path, body) {
@@ -90,6 +121,7 @@ async function callApi(method, path, body) {
     throw new Error('トークンが無効です。サーバーのコンソールに表示された URL を開き直してください。');
   }
   if (res.status === 423) handleLocked(payload.error);
+  if (res.status === 409) handleConflict(path, payload.error);
   if (!res.ok) throw new Error(payload.error || `リクエストに失敗しました (${res.status})`);
   return payload;
 }
@@ -115,6 +147,8 @@ function renderView() {
 
 async function loadStatus() {
   status = await callApi('GET', '/api/status');
+  // 409 の後などで解除済みでなくなったら、復号した内容を DOM に残さない
+  if (!status.unlocked) clearUnlockedData();
   renderView();
   if (status.unlocked) await refresh();
 }
@@ -167,6 +201,7 @@ function createEntryRow(entry) {
     createCell(entry.label),
     createCell(entry.domain),
     createCell(entry.includeSubdomains ? '含む' : '—'),
+    createCell(entry.allowHttp ? '許可' : '—'),
     createCell(entry.username),
     createCell(entry.hasPassword ? '••••••••' : '(未設定)'),
     createCell(createActions(entry)),
@@ -181,17 +216,24 @@ function renderEntries() {
   elements.entriesBody.replaceChildren(...state.entries.map(createEntryRow));
 }
 
+// 有効なエントリのうち条件に合うものを、注意書きの一覧として表示する
+function renderEntryNotice(notice, list, predicate, describe) {
+  const matched = state.entries.filter((entry) => entry.enabled && predicate(entry));
+  notice.hidden = matched.length === 0;
+  list.replaceChildren(...matched.map((entry) => {
+    const item = document.createElement('li');
+    item.textContent = `${entry.label}: ${describe(entry)}`;
+    return item;
+  }));
+}
+
 function renderResult() {
   elements.extensionDir.textContent = state.extensionDir ?? '';
   elements.extensionVersion.textContent = state.extensionVersion ?? '未生成（保存または再生成で作成されます）';
-
-  const wide = state.entries.filter((entry) => entry.enabled && entry.includeSubdomains);
-  elements.subdomainNotice.hidden = wide.length === 0;
-  elements.subdomainNoticeList.replaceChildren(...wide.map((entry) => {
-    const item = document.createElement('li');
-    item.textContent = `${entry.label}: ${entry.domain} と *.${entry.domain}`;
-    return item;
-  }));
+  renderEntryNotice(elements.subdomainNotice, elements.subdomainNoticeList,
+    (entry) => entry.includeSubdomains, (entry) => `${entry.domain} と *.${entry.domain}`);
+  renderEntryNotice(elements.httpNotice, elements.httpNoticeList,
+    (entry) => entry.allowHttp, (entry) => entry.domain);
 }
 
 function renderState() {
@@ -227,6 +269,10 @@ function updateSubdomainWarning() {
   elements.subdomainWarningDomain.textContent = elements.domainInput.value.trim() || '<domain>';
 }
 
+function updateAllowHttpWarning() {
+  elements.allowHttpWarning.hidden = !elements.allowHttpCheckbox.checked;
+}
+
 function openForm(entry) {
   editingId = entry?.id ?? null;
   elements.form.reset();
@@ -239,9 +285,11 @@ function openForm(entry) {
     elements.form.elements.label.value = entry.label;
     elements.form.elements.domain.value = entry.domain;
     elements.form.elements.includeSubdomains.checked = entry.includeSubdomains;
+    elements.form.elements.allowHttp.checked = entry.allowHttp === true;
     elements.form.elements.username.value = entry.username;
   }
   updateSubdomainWarning();
+  updateAllowHttpWarning();
   elements.formSection.hidden = false;
   elements.form.elements.label.focus();
 }
@@ -258,6 +306,7 @@ function readEntryForm() {
     label: fields.label.value,
     domain: fields.domain.value,
     includeSubdomains: fields.includeSubdomains.checked,
+    allowHttp: fields.allowHttp.checked,
     username: fields.username.value,
     password: fields.password.value,
   };
@@ -387,16 +436,19 @@ async function copyText(text, button) {
   }
 }
 
+// ロック要求が失敗しても (サーバーの停止など)、画面からは復号した内容を消してロック中の表示にする。
+// サーバー側が解除のままでも、解除画面からもう一度解除すれば元に戻る
 async function lock() {
   try {
     status = await callApi('POST', '/api/lock');
-    state = { entries: [] };
-    closeForm();
-    renderView();
     showNotice('');
   } catch (error) {
+    status = { ...status, unlocked: false };
     showError(error.message);
   }
+  clearUnlockedData();
+  closeForm();
+  renderView();
 }
 
 function bindEvents() {
@@ -412,6 +464,7 @@ function bindEvents() {
   });
   elements.form.addEventListener('submit', submitEntryForm);
   elements.subdomainCheckbox.addEventListener('change', updateSubdomainWarning);
+  elements.allowHttpCheckbox.addEventListener('change', updateAllowHttpWarning);
   elements.domainInput.addEventListener('input', updateSubdomainWarning);
   document.querySelectorAll('[data-copy-target]').forEach((button) => {
     button.addEventListener('click', () => copyText(byId(button.dataset.copyTarget).textContent, button));

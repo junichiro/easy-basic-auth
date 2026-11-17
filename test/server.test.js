@@ -5,7 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { createAppServer } from '../src/server.js';
+import { createAppServer, describeListenError } from '../src/server.js';
 
 const TOKEN = 'test-token-123';
 const MASTER = 'master password 1234';
@@ -304,5 +304,19 @@ describe('リクエスト処理中の例外', () => {
       brokenServer.closeAllConnections();
       await new Promise((resolve) => brokenServer.close(resolve));
     }
+  });
+});
+
+describe('describeListenError', () => {
+  test('ポートが使用中なら、起動済みのこのツールを使うよう案内し、2 つ目の起動を促さない', () => {
+    const message = describeListenError({ code: 'EADDRINUSE' }, 4729);
+    assert.match(message, /4729/);
+    assert.match(message, /すでに起動/);
+    assert.match(message, /同じ設定フォルダ/);
+    assert.ok(!message.includes('PORT=<番号> npm start'), 'Windows では動かない書き方を案内しない');
+  });
+
+  test('ほかのエラーは内容をそのまま伝える', () => {
+    assert.match(describeListenError(new Error('boom'), 4729), /boom/);
   });
 });

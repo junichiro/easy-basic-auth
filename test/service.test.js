@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createEntryService } from '../src/service.js';
 import { createSession, LockedError } from '../src/session.js';
 import { ValidationError } from '../src/entries.js';
-import { UnsupportedConfigError } from '../src/vault.js';
+import { UnsupportedConfigError, sealConfig } from '../src/vault.js';
 import { StateError, BrokenConfigError } from '../src/errors.js';
 import { deriveKey, decryptJson, VAULT_AAD, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 
@@ -15,11 +15,14 @@ const SECRET_USER = 'distinctive-user-name';
 const SECRET_PASSWORD = 'distinctive-secret-パスワード';
 const SECRET_LABEL = 'distinctive-label';
 
-function makeService({ now } = {}) {
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eba-service-'));
+function makeServiceFor(configDir, { now } = {}) {
   const session = createSession({ idleTimeoutMs: 60_000, now });
   const service = createEntryService({ configDir, session, kdfIterations: 1000 });
   return { configDir, session, service };
+}
+
+function makeService(options) {
+  return makeServiceFor(fs.mkdtempSync(path.join(os.tmpdir(), 'eba-service-')), options);
 }
 
 const entryInput = {
@@ -54,6 +57,39 @@ describe('拡張機能の生成', () => {
     const manifest = readJson(configDir, 'extension', 'manifest.json');
     const vault = readJson(configDir, 'extension', 'vault.json');
     assert.equal(vault.extensionVersion, manifest.version);
+  });
+});
+
+describe('http (平文) の扱い', () => {
+  // allowHttp を持たない以前の保存データを、同じ鍵で config.json に書き直す
+  async function rewriteAsLegacyEntries(configDir) {
+    const configPath = path.join(configDir, 'config.json');
+    const config = readJson(configPath);
+    const key = await deriveKey(MASTER, config.kdf);
+    const { entries } = await decryptJson(key, config.vault, VAULT_AAD.config);
+    const legacyEntries = entries.map(({ allowHttp, ...rest }) => rest);
+    const sealed = await sealConfig({ counter: config.extensionVersionCounter, kdf: config.kdf, key, entries: legacyEntries });
+    fs.writeFileSync(configPath, JSON.stringify(sealed));
+  }
+
+  test('allowHttp を持たない以前の保存データは、再生成すると https のみになる', async () => {
+    const { configDir, service } = makeService();
+    await service.setup(MASTER);
+    await service.addEntry(entryInput);
+    await rewriteAsLegacyEntries(configDir);
+
+    await service.regenerate();
+    assert.deepEqual(readJson(configDir, 'extension', 'manifest.json').host_permissions, ['https://secure.example.com/*']);
+    const { entries } = await decryptExtensionVault(configDir, MASTER);
+    assert.equal(entries[0].allowHttp, false);
+  });
+
+  test('allowHttp を ON にしたエントリだけ http も対象にする', async () => {
+    const { configDir, service } = makeService();
+    await service.setup(MASTER);
+    const state = await service.addEntry({ ...entryInput, allowHttp: true });
+    assert.equal(state.entries[0].allowHttp, true);
+    assert.deepEqual(readJson(configDir, 'extension', 'manifest.json').host_permissions, ['*://secure.example.com/*']);
   });
 });
 
@@ -210,7 +246,7 @@ describe('エントリ操作と生成', () => {
 
     const { entries } = await decryptExtensionVault(configDir, MASTER);
     assert.deepEqual(entries, [{
-      domain: 'secure.example.com', includeSubdomains: false, username: SECRET_USER, password: SECRET_PASSWORD,
+      domain: 'secure.example.com', includeSubdomains: false, allowHttp: false, username: SECRET_USER, password: SECRET_PASSWORD,
     }]);
   });
 
@@ -307,6 +343,45 @@ describe('拡張機能の書き出しが途中で失敗したとき', () => {
     assert.deepEqual(state.entries, []);
     assertConsistent(configDir);
     assert.deepEqual(await decryptExtensionVault(configDir, MASTER), { entries: [] });
+  });
+});
+
+describe('拡張機能の version を使い回さない', () => {
+  test('config.json を消して初期設定し直しても、生成済みの拡張機能より大きい version にする', async () => {
+    const { service, configDir } = makeService();
+    await service.setup(MASTER);
+    await service.addEntry(entryInput);
+    await service.addEntry({ ...entryInput, domain: 'other.example.com' });
+    const previous = readJson(configDir, 'extension', 'manifest.json').version;
+    assert.equal(previous, '1.0.3');
+
+    // README の案内どおり、マスターパスワードを忘れたので config.json を消して登録し直す
+    fs.rmSync(path.join(configDir, 'config.json'));
+    const { service: next } = makeServiceFor(configDir);
+    const state = await next.setup(MASTER);
+    assert.equal(state.extensionVersion, '1.0.4');
+    assert.equal(readJson(configDir, 'extension', 'manifest.json').version, '1.0.4');
+  });
+
+  test('拡張機能を書いた後に config.json を書けなかった場合も、次の保存で同じ version を使わない', async () => {
+    const { service, configDir } = makeService();
+    await service.setup(MASTER);
+    await service.addEntry(entryInput);
+    // 拡張機能は 1.0.2 まで書いたが、config.json の書き込みに失敗して counter が 1 のまま残った状態
+    const configPath = path.join(configDir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({ ...readJson(configPath), extensionVersionCounter: 1 }));
+
+    const state = await service.addEntry({ ...entryInput, domain: 'other.example.com' });
+    assert.equal(state.extensionVersion, '1.0.3');
+    assert.equal(readJson(configPath).extensionVersionCounter, 3);
+  });
+
+  test('manifest.json が読めなくても、config.json の counter から保存できる', async () => {
+    const { service, configDir } = makeService();
+    await service.setup(MASTER);
+    fs.writeFileSync(path.join(configDir, 'extension', 'manifest.json'), '{');
+    const state = await service.regenerate();
+    assert.equal(state.extensionVersion, '1.0.2');
   });
 });
 

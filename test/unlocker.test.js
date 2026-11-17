@@ -6,6 +6,8 @@ import { createKdfParams, deriveKey } from '../src/extension/lib/vault-crypto.js
 
 const MASTER = 'master password 1234';
 const EXTENSION_ID = 'test-extension-id';
+// https のみのエントリ 2 件 × スキーム (https・wss) 2 つ
+const EXPECTED_RULE_COUNT = 4;
 let vault;
 
 before(async () => {
@@ -43,7 +45,8 @@ function createFakeChrome({ loadVault = async () => vault, manifestVersion = '1.
         },
       },
       storage: {
-        get: async (key) => ({ [key]: storage[key] }),
+        // chrome.storage.session.get はキー 1 つでも配列でも受け付ける
+        get: async (keys) => Object.fromEntries([keys].flat().map((key) => [key, storage[key]])),
         set: async (items) => { Object.assign(storage, items); },
       },
       action: {
@@ -68,9 +71,9 @@ describe('createUnlocker', () => {
   test('正しいマスターパスワードでセッションルールを登録する', async () => {
     const fake = createFakeChrome();
     const unlocker = createUnlocker(fake.deps);
-    assert.deepEqual(await unlocker.unlock(MASTER), { ok: true, ruleCount: 2 });
-    assert.equal(fake.sessionRules().length, 2);
-    assert.deepEqual(await unlocker.getStatus(), { unlocked: true });
+    assert.deepEqual(await unlocker.unlock(MASTER), { ok: true, ruleCount: EXPECTED_RULE_COUNT });
+    assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: true, entryCount: 2 });
     assert.equal(fake.badge.text, '');
   });
 
@@ -89,7 +92,7 @@ describe('createUnlocker', () => {
     const unlocker = createUnlocker(fake.deps);
     await unlocker.unlock(MASTER);
     await unlocker.unlock(MASTER);
-    assert.equal(fake.sessionRules().length, 2);
+    assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
   });
 
   test('ロックするとセッションルールを削除する', async () => {
@@ -140,12 +143,32 @@ describe('createUnlocker の version 確認', () => {
       loadVault: async () => ({ ...vault, extensionVersion: '1.0.1' }),
       manifestVersion: '1.0.1',
     });
-    assert.deepEqual(await createUnlocker(fake.deps).unlock(MASTER), { ok: true, ruleCount: 2 });
+    assert.deepEqual(await createUnlocker(fake.deps).unlock(MASTER), { ok: true, ruleCount: EXPECTED_RULE_COUNT });
   });
 
   test('version を記録していない古い vault でも解除できる', async () => {
     const fake = createFakeChrome();
     assert.equal((await createUnlocker(fake.deps).unlock(MASTER)).ok, true);
+  });
+});
+
+describe('createUnlocker の有効なエントリ数', () => {
+  test('有効なエントリが 0 件の vault で解除すると、状態に 0 件と返す (ポップアップで案内するため)', async () => {
+    const kdf = createKdfParams({ iterations: 1000 });
+    const key = await deriveKey(MASTER, kdf);
+    const emptyVault = await buildExtensionVault([], key, kdf);
+    const fake = createFakeChrome({ loadVault: async () => emptyVault });
+    const unlocker = createUnlocker(fake.deps);
+    assert.equal((await unlocker.unlock(MASTER)).ok, true);
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: true, entryCount: 0 });
+  });
+
+  test('ロックすると件数は返さない', async () => {
+    const fake = createFakeChrome();
+    const unlocker = createUnlocker(fake.deps);
+    await unlocker.unlock(MASTER);
+    await unlocker.lock();
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
   });
 });
 
@@ -155,7 +178,7 @@ describe('createUnlocker の同時実行', () => {
     const unlocker = createUnlocker(fake.deps);
     const results = await Promise.all([unlocker.unlock(MASTER), unlocker.unlock(MASTER)]);
     assert.deepEqual(results.map((result) => result.ok), [true, true]);
-    assert.equal(fake.sessionRules().length, 2);
+    assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
   });
 
   test('解除の直後にロックが来たら、受け付けた順に処理してロック状態で終わる', async () => {

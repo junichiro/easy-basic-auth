@@ -46,6 +46,7 @@ describe('createEntry', () => {
       label: '社内',
       domain: 'dashboard.example.com',
       includeSubdomains: false,
+      allowHttp: false,
       username: 'user',
       password: 'pass',
       enabled: true,
@@ -59,6 +60,62 @@ describe('createEntry', () => {
   test('includeSubdomains は true のときだけ有効になる', () => {
     assert.equal(createEntry({ ...input, includeSubdomains: true }, fixedId).includeSubdomains, true);
     assert.equal(createEntry({ ...input, includeSubdomains: 'true' }, fixedId).includeSubdomains, false);
+  });
+
+  test('allowHttp は true のときだけ有効になり、既定は false (https のみ)', () => {
+    assert.equal(createEntry({ ...input, allowHttp: true }, fixedId).allowHttp, true);
+    assert.equal(createEntry({ ...input, allowHttp: 'true' }, fixedId).allowHttp, false);
+    assert.equal(createEntry(input, fixedId).allowHttp, false);
+  });
+
+  test('http:// の URL を貼り付けても allowHttp がなければ拒否し、許可の方法を案内する', () => {
+    assert.throws(() => createEntry({ ...input, domain: 'http://dashboard.example.com/' }, fixedId), (error) => {
+      assert.ok(error instanceof ValidationError);
+      assert.equal(error.field, 'domain');
+      assert.match(error.message, /http（平文）を許可/);
+      return true;
+    });
+  });
+
+  test('http:// の URL でも allowHttp が true なら登録できる', () => {
+    const entry = createEntry({ ...input, domain: 'http://dashboard.example.com/', allowHttp: true }, fixedId);
+    assert.equal(entry.domain, 'dashboard.example.com');
+    assert.equal(entry.allowHttp, true);
+  });
+
+  describe('公開サフィックスとサブドメイン', () => {
+    test('公開サフィックス (TLD・共有ホスティング) に「サブドメインを含む」を付けると拒否する', () => {
+      for (const domain of [
+        'com', 'jp', 'co.jp', 'co.uk', 'com.au', 'github.io', 'azurewebsites.net', 'herokuapp.com',
+        // 事業者が利用者で共有する、さらに下の階層
+        'a.run.app', 'r.appspot.com', 's3.amazonaws.com', 'blob.core.windows.net',
+      ]) {
+        assert.throws(() => createEntry({ ...input, domain, includeSubdomains: true }, fixedId), (error) => {
+          assert.ok(error instanceof ValidationError, domain);
+          assert.equal(error.field, 'includeSubdomains');
+          return true;
+        }, domain);
+      }
+    });
+
+    test('公開サフィックスの下の自分のドメインには「サブドメインを含む」を付けられる', () => {
+      for (const domain of [
+        'example.com', 'example.co.jp', 'myapp.azurewebsites.net', 'corp.internal', 'localhost',
+        // 社内向けに使われる 1 ラベルの名前 (wiki.corp や jira.intranet などをまとめて登録する)
+        'internal', 'corp', 'lan', 'home', 'local', 'intranet',
+      ]) {
+        assert.equal(createEntry({ ...input, domain, includeSubdomains: true }, fixedId).includeSubdomains, true, domain);
+      }
+    });
+
+    test('「サブドメインを含む」を付けなければ、公開サフィックスと同じ名前のホストも登録できる', () => {
+      assert.equal(createEntry({ ...input, domain: 'github.io' }, fixedId).domain, 'github.io');
+    });
+
+    test('既存のエントリを更新するときも拒否する', () => {
+      const existing = createEntry({ ...input, domain: 'example.com', includeSubdomains: true }, fixedId);
+      assert.throws(() => updateEntry(existing, { domain: 'co.jp' }), ValidationError);
+    });
   });
 
   test('パスワードが空なら拒否する', () => {
@@ -77,6 +134,7 @@ describe('updateEntry', () => {
     label: '旧',
     domain: 'old.example.com',
     includeSubdomains: false,
+    allowHttp: false,
     username: 'old',
     password: 'secret',
     enabled: true,
@@ -88,6 +146,25 @@ describe('updateEntry', () => {
     assert.equal(updated.username, 'new');
   });
 
+  test('100 文字を超えるドメインを既定のラベルにしたエントリも、有効・無効を切り替えられる', () => {
+    const longDomain = `${'a'.repeat(60)}.${'b'.repeat(40)}.example.com`;
+    const entry = createEntry({ domain: longDomain, username: 'u', password: 'p' }, fixedId);
+    assert.equal(entry.label, longDomain);
+    assert.equal(updateEntry(entry, { enabled: false }).enabled, false);
+    assert.equal(updateEntry(entry, { label: longDomain, username: 'v' }).username, 'v');
+  });
+
+  test('100 文字を超えるドメインを既定のラベルにしたエントリも、ドメインを変えられる (ラベルは新しいドメインに追従する)', () => {
+    const longDomain = `${'a'.repeat(60)}.${'b'.repeat(40)}.example.com`;
+    const entry = createEntry({ domain: longDomain, username: 'u', password: 'p' }, fixedId);
+    assert.equal(updateEntry(entry, { label: longDomain, domain: 'short.example.com' }).label, 'short.example.com');
+    assert.equal(updateEntry(entry, { domain: 'short.example.com' }).label, 'short.example.com');
+  });
+
+  test('ドメインと異なる 100 文字を超えるラベルは拒否する', () => {
+    assert.throws(() => updateEntry(existing, { label: 'あ'.repeat(101) }), ValidationError);
+  });
+
   test('パスワードを指定すれば更新する', () => {
     assert.equal(updateEntry(existing, { password: 'next' }).password, 'next');
   });
@@ -95,6 +172,15 @@ describe('updateEntry', () => {
   test('指定されたフィールドだけ更新し、ID は変えない', () => {
     const updated = updateEntry(existing, { enabled: false, id: 'hacked' });
     assert.deepEqual(updated, { ...existing, enabled: false });
+  });
+
+  test('allowHttp を持たない既存のエントリ (以前の保存データ) は https のみとして扱う', () => {
+    const { allowHttp, ...legacy } = existing;
+    assert.equal(updateEntry(legacy, { username: 'new' }).allowHttp, false);
+  });
+
+  test('allowHttp を更新できる', () => {
+    assert.equal(updateEntry(existing, { allowHttp: true }).allowHttp, true);
   });
 
   test('ドメインを更新するときも正規化する', () => {

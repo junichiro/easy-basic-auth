@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { readConfig, writeConfig, getExtensionDir, getConfigPath } from './config.js';
-import { buildManifest, buildExtensionVault, writeExtension, formatExtensionVersion } from './generate.js';
+import { buildManifest, buildExtensionVault, writeExtension, formatExtensionVersion, readExtensionCounter } from './generate.js';
 import { createEntry, updateEntry, toPublicEntry, assertUniqueDomain, ValidationError } from './entries.js';
 import { StateError } from './errors.js';
 import { normalizeLegacyEntries } from './migration.js';
@@ -53,12 +53,18 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     return config;
   }
 
+  // 書き出し済みの拡張機能の version より必ず大きくする。config.json を消して初期設定し直した場合や、
+  // 拡張機能を書いた後に config.json の書き込みに失敗した場合に、同じ version を別の内容で使い回さない
+  function nextCounterAfter(counter) {
+    return Math.max(counter, readExtensionCounter(extensionDir)) + 1;
+  }
+
   async function persist({ counter, kdf, key, entries }) {
-    const nextCounter = counter + 1;
+    const nextCounter = nextCounterAfter(counter);
     const config = await sealConfig({ counter: nextCounter, kdf, key, entries });
     const vault = await buildExtensionVault(entries, key, kdf, formatExtensionVersion(nextCounter));
     // 拡張機能を先に書き、config.json は最後に書く。拡張機能の書き出しが途中で失敗しても
-    // config.json (counter) は元のままなので、同じ保存や再生成をやり直せば同じ version で書き直してそろう
+    // manifest.json (最後に書く) と config.json は元のままなので、保存や再生成をやり直せば同じ version で書き直してそろう
     writeExtension(extensionDir, { manifest: buildManifest(entries, nextCounter), vault });
     writeConfig(configDir, config);
     return toState(entries, nextCounter);

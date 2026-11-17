@@ -35,7 +35,8 @@ export function readConfig(configDir) {
   const filePath = getConfigPath(configDir);
   if (!fs.existsSync(filePath)) return null;
 
-  const raw = fs.readFileSync(filePath, 'utf8');
+  // 手で編集したときに付くことがある BOM を取り除く (JSON.parse は BOM を受け付けない)
+  const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
   try {
     return JSON.parse(raw);
   } catch (error) {

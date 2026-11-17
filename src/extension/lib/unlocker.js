@@ -5,6 +5,7 @@ import { createMutex } from './mutex.js';
 export const LOCKED_BADGE_TEXT = 'LOCK';
 const LOCKED_BADGE_COLOR = '#8a8886';
 const UNLOCKED_STORAGE_KEY = 'unlocked';
+const ENTRY_COUNT_STORAGE_KEY = 'entryCount';
 const STALE_EXTENSION_MESSAGE = '設定が更新されています。edge://extensions で拡張機能を再読み込みしてから解除してください';
 
 /**
@@ -27,9 +28,16 @@ export function createUnlocker({ dnr, storage, action, loadVault, manifestVersio
     return items[UNLOCKED_STORAGE_KEY] === true;
   }
 
-  async function setUnlocked(unlocked) {
-    await storage.set({ [UNLOCKED_STORAGE_KEY]: unlocked });
+  // entryCount: 解除時に登録した有効なエントリの数。0 件ならポップアップでその旨を案内する
+  async function setUnlocked(unlocked, entryCount = 0) {
+    await storage.set({ [UNLOCKED_STORAGE_KEY]: unlocked, [ENTRY_COUNT_STORAGE_KEY]: entryCount });
     await refreshBadge();
+  }
+
+  async function getStatus() {
+    const items = await storage.get([UNLOCKED_STORAGE_KEY, ENTRY_COUNT_STORAGE_KEY]);
+    if (items[UNLOCKED_STORAGE_KEY] !== true) return { unlocked: false };
+    return { unlocked: true, entryCount: items[ENTRY_COUNT_STORAGE_KEY] ?? 0 };
   }
 
   async function replaceSessionRules(rules) {
@@ -78,7 +86,7 @@ export function createUnlocker({ dnr, storage, action, loadVault, manifestVersio
     }
     const rules = buildRules(entries);
     await replaceSessionRules(rules);
-    await setUnlocked(true);
+    await setUnlocked(true, entries.length);
     return { ok: true, ruleCount: rules.length };
   }
 
@@ -88,7 +96,7 @@ export function createUnlocker({ dnr, storage, action, loadVault, manifestVersio
   }
 
   return {
-    getStatus: async () => ({ unlocked: await isUnlocked() }),
+    getStatus,
     unlock: (password) => exclusive(() => unlock(password)),
     lock: () => exclusive(lock),
     refreshBadge,
