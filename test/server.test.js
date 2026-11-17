@@ -2,6 +2,7 @@ import { describe, test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createAppServer } from '../src/server.js';
@@ -238,5 +239,70 @@ describe('静的ファイル', () => {
     assert.equal(res.status, 404);
     const encoded = await request('GET', '/%2e%2e/package.json');
     assert.equal(encoded.status, 404);
+  });
+});
+
+const RAW_REQUEST_TIMEOUT_MS = 2000;
+
+// 生のリクエスト行を送りたいので node:net を使う（node:http は不正な URL を送れない）
+function rawRequest(targetPort, requestTarget) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(targetPort, '127.0.0.1', () => {
+      socket.write(`GET ${requestTarget} HTTP/1.1\r\nHost: 127.0.0.1:${targetPort}\r\nConnection: close\r\n\r\n`);
+    });
+    let data = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => { data += chunk; });
+    socket.on('end', () => resolve(data));
+    socket.on('error', reject);
+    // 応答が返らない場合にテストが止まらないよう、一定時間で打ち切る
+    socket.setTimeout(RAW_REQUEST_TIMEOUT_MS, () => {
+      socket.destroy();
+      resolve(data);
+    });
+  });
+}
+
+function statusOf(rawResponse) {
+  return Number(/^HTTP\/1\.1 (\d{3})/.exec(rawResponse)?.[1]);
+}
+
+// console.error の出力を捕まえつつ黙らせる
+async function captureConsoleError(fn) {
+  const original = console.error;
+  const calls = [];
+  console.error = (...args) => { calls.push(args); };
+  try {
+    return { result: await fn(), calls };
+  } finally {
+    console.error = original;
+  }
+}
+
+describe('リクエスト処理中の例外', () => {
+  test('URL として解釈できないリクエストは 400 を返し、サーバーは動き続ける', async () => {
+    const { result } = await captureConsoleError(() => rawRequest(port, 'http://['));
+    assert.equal(statusOf(result), 400);
+
+    const after = await request('GET', '/');
+    assert.equal(after.status, 200);
+  });
+
+  test('静的ファイルが読めないときは 500 を返し、ログに残し、サーバーは動き続ける', async () => {
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eba-public-'));
+    const brokenServer = createAppServer({ configDir, token: TOKEN, publicDir: emptyDir, kdfIterations: 1000 });
+    await new Promise((resolve) => brokenServer.listen(0, '127.0.0.1', resolve));
+    const brokenPort = brokenServer.address().port;
+    try {
+      const { result, calls } = await captureConsoleError(() => rawRequest(brokenPort, '/'));
+      assert.equal(statusOf(result), 500);
+      assert.ok(calls.length > 0, 'エラーがログに出力されること');
+
+      const again = await captureConsoleError(() => rawRequest(brokenPort, '/'));
+      assert.equal(statusOf(again.result), 500);
+    } finally {
+      brokenServer.closeAllConnections();
+      await new Promise((resolve) => brokenServer.close(resolve));
+    }
   });
 });

@@ -165,26 +165,53 @@ function handleStatic(req, res, pathname, publicDir) {
     res.end('Not found');
     return;
   }
+  // 読み込みに失敗したときに 500 を返せるよう、ヘッダー送信より前に読む
+  const content = fs.readFileSync(path.join(publicDir, asset.file));
   res.writeHead(200, { 'Content-Type': asset.type });
-  res.end(fs.readFileSync(path.join(publicDir, asset.file)));
+  res.end(content);
+}
+
+function parsePathname(url) {
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    throw new HttpError(400, 'Invalid request URL');
+  }
+}
+
+async function routeRequest(req, res, { service, token, publicDir }) {
+  // DNS リバインディング対策: Host が自分自身でなければ一切応答しない
+  if (!isAllowedHost(req)) {
+    sendJson(res, 403, { error: 'Invalid host' });
+    return;
+  }
+
+  const pathname = parsePathname(req.url);
+  if (pathname.startsWith('/api/')) {
+    await handleApi(req, res, pathname, { service, token });
+    return;
+  }
+  handleStatic(req, res, pathname, publicDir);
+}
+
+// http サーバーはハンドラーの Promise を無視するため、ここで全ての例外を受け止めてプロセスの終了を防ぐ
+function respondToUnhandledError(res, error) {
+  if (res.headersSent) {
+    console.error('[edge-basic-auth] Error after response headers were sent:', error);
+    res.end();
+    return;
+  }
+  sendJson(res, ...toErrorResponse(error));
 }
 
 export function createRequestHandler({ service, token, publicDir = PUBLIC_DIR }) {
   return async (req, res) => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
-
-    // DNS リバインディング対策: Host が自分自身でなければ一切応答しない
-    if (!isAllowedHost(req)) {
-      sendJson(res, 403, { error: 'Invalid host' });
-      return;
+    try {
+      await routeRequest(req, res, { service, token, publicDir });
+    } catch (error) {
+      respondToUnhandledError(res, error);
     }
-
-    const { pathname } = new URL(req.url, 'http://localhost');
-    if (pathname.startsWith('/api/')) {
-      await handleApi(req, res, pathname, { service, token });
-      return;
-    }
-    handleStatic(req, res, pathname, publicDir);
   };
 }
 
