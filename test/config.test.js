@@ -8,6 +8,8 @@ import {
   readConfig,
   writeConfig,
 } from '../src/config.js';
+import { BrokenConfigError } from '../src/vault.js';
+import { StateError } from '../src/errors.js';
 
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'eba-config-'));
@@ -59,6 +61,19 @@ describe('readConfig / writeConfig', () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, 'config.json'), '{ broken');
     assert.throws(() => readConfig(dir), /config\.json/);
+  });
+
+  test('JSON として読めない config.json は、場所を含めた BrokenConfigError にする', () => {
+    const dir = makeTempDir();
+    const filePath = path.join(dir, 'config.json');
+    fs.writeFileSync(filePath, '{ "version": 2, }');
+    assert.throws(() => readConfig(dir), (error) => {
+      assert.ok(error instanceof BrokenConfigError);
+      assert.ok(error instanceof StateError);
+      assert.ok(error.message.includes(filePath));
+      assert.equal(error.configPath, filePath);
+      return true;
+    });
   });
 
   test('一時ファイルを残さない', () => {

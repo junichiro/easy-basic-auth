@@ -1,5 +1,8 @@
 import { deriveKey, encryptJson, decryptJson, VAULT_AAD } from './extension/lib/vault-crypto.js';
-import { StateError } from './errors.js';
+import { StateError, BrokenConfigError } from './errors.js';
+
+// 既存の import (vault.js から BrokenConfigError を読む側) を壊さないよう再エクスポートする
+export { BrokenConfigError };
 
 const LEGACY_VERSION = 1;
 export const CONFIG_VERSION = 2;
@@ -11,22 +14,46 @@ export class UnsupportedConfigError extends StateError {
   }
 }
 
-// config.json が壊れている、または想定した形式ではない (オブジェクトでない、version が正の整数でない)
-export class BrokenConfigError extends StateError {
-  constructor({ configPath } = {}) {
-    const location = configPath ? ` (${configPath})` : '';
-    super(`config.json${location} が壊れているか、想定した形式ではありません。ファイルを修正するか、別の場所へ移動してから再度お試しください`);
-    this.name = 'BrokenConfigError';
-    this.configPath = configPath;
-  }
-}
-
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isValidVersion(version) {
   return Number.isInteger(version) && version >= LEGACY_VERSION;
+}
+
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const SUPPORTED_KDF_HASHES = new Set(['SHA-256', 'SHA-384', 'SHA-512']);
+
+function isNonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function isBase64(value) {
+  return typeof value === 'string' && BASE64_PATTERN.test(value);
+}
+
+// deriveKey に渡せる形か (createKdfParams が作る形)
+function isValidKdf(kdf) {
+  if (!isPlainObject(kdf)) return false;
+  if (kdf.name !== 'PBKDF2' || !SUPPORTED_KDF_HASHES.has(kdf.hash)) return false;
+  return Number.isInteger(kdf.iterations) && kdf.iterations > 0 && isBase64(kdf.salt);
+}
+
+// decryptJson に渡せる形か (encryptJson が作る形)
+function isValidSealedVault(vault) {
+  return isPlainObject(vault) && isBase64(vault.iv) && isBase64(vault.ciphertext);
+}
+
+function isValidV2Config(config) {
+  return isNonNegativeInteger(config.extensionVersionCounter)
+    && isValidKdf(config.kdf)
+    && isValidSealedVault(config.vault);
+}
+
+// v1 の extensionVersionCounter は省略可 (0 とみなす)。あれば 0 以上の整数でなければならない
+function isValidLegacyConfig(config) {
+  return config.extensionVersionCounter === undefined || isNonNegativeInteger(config.extensionVersionCounter);
 }
 
 // 旧形式のエントリがあるか。配列でない値 (手編集・破損) も空とはみなさず、
@@ -42,14 +69,18 @@ function hasLegacyEntries(entries) {
  * - v1: 旧形式（平文）。エントリがあれば移行が必要
  * - v2: マスターパスワードで暗号化済み
  * - それより新しい整数の version: UnsupportedConfigError
- * - オブジェクトでない、または version が正の整数でない: BrokenConfigError
+ * - オブジェクトでない、version が正の整数でない、または v1/v2 の中身が想定した形でない: BrokenConfigError
  *   (configPath を渡すと、エラーメッセージにファイルの場所を含める)
  */
 export function getConfigStatus(config, { configPath } = {}) {
   if (config === null || config === undefined) return { initialized: false, needsMigration: false };
   if (!isPlainObject(config) || !isValidVersion(config.version)) throw new BrokenConfigError({ configPath });
-  if (config.version === CONFIG_VERSION) return { initialized: true, needsMigration: false };
+  if (config.version === CONFIG_VERSION) {
+    if (!isValidV2Config(config)) throw new BrokenConfigError({ configPath });
+    return { initialized: true, needsMigration: false };
+  }
   if (config.version === LEGACY_VERSION) {
+    if (!isValidLegacyConfig(config)) throw new BrokenConfigError({ configPath });
     return { initialized: false, needsMigration: hasLegacyEntries(config.entries) };
   }
   throw new UnsupportedConfigError(config.version);

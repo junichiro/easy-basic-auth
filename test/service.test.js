@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createEntryService, StateError } from '../src/service.js';
 import { createSession, LockedError } from '../src/session.js';
 import { ValidationError } from '../src/entries.js';
-import { UnsupportedConfigError } from '../src/vault.js';
+import { UnsupportedConfigError, BrokenConfigError } from '../src/vault.js';
 import { deriveKey, decryptJson, VAULT_AAD, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 
 const MASTER = 'master password 1234';
@@ -345,6 +345,34 @@ describe('未対応の config', () => {
     const { service, configDir } = makeService();
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ version: 99 }));
     assert.throws(() => service.getStatus(), UnsupportedConfigError);
+  });
+
+  function assertBrokenWithPath(configDir) {
+    const configPath = path.join(configDir, 'config.json');
+    return (error) => error instanceof BrokenConfigError && error.message.includes(configPath);
+  }
+
+  test('JSON として読めない config.json は、場所を含めた BrokenConfigError にする', () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), '{ "version": 2, }');
+    assert.throws(() => service.getStatus(), assertBrokenWithPath(configDir));
+  });
+
+  test('v1 の extensionVersionCounter が文字列なら、初期設定せず BrokenConfigError にする', async () => {
+    const { service, configDir } = makeService();
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ version: 1, extensionVersionCounter: '3', entries: [] }));
+    await assert.rejects(service.setup(MASTER), assertBrokenWithPath(configDir));
+    assert.equal(fs.existsSync(path.join(configDir, 'extension', 'manifest.json')), false);
+  });
+
+  test('v2 の extensionVersionCounter が無ければ、保存せず BrokenConfigError にする', async () => {
+    const { service, configDir } = makeService();
+    await service.setup(MASTER);
+    const configPath = path.join(configDir, 'config.json');
+    const { extensionVersionCounter, ...rest } = readJson(configPath);
+    fs.writeFileSync(configPath, JSON.stringify(rest));
+    await assert.rejects(service.regenerate(), assertBrokenWithPath(configDir));
+    assert.equal(readJson(configDir, 'extension', 'manifest.json').version, `1.0.${extensionVersionCounter}`);
   });
 });
 

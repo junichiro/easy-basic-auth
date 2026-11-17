@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ensurePrivateDir, writeJsonAtomic } from './secure-fs.js';
+import { BrokenConfigError } from './errors.js';
 
 const APP_DIR_NAME = 'edge-basic-auth';
 const CONFIG_FILE_NAME = 'config.json';
@@ -34,7 +35,7 @@ export function readConfig(configDir) {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Failed to parse ${filePath}: ${error.message}`, { cause: error });
+    throw new BrokenConfigError({ configPath: filePath, cause: error });
   }
 }
 

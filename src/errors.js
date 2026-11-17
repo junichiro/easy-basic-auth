@@ -5,3 +5,14 @@ export class StateError extends Error {
     this.name = 'StateError';
   }
 }
+
+// config.json が壊れている、または想定した形式ではない (JSON として読めない、必要な項目が無い・型が違う など)
+export class BrokenConfigError extends StateError {
+  constructor({ configPath, cause } = {}) {
+    const location = configPath ? ` (${configPath})` : '';
+    super(`config.json${location} が壊れているか、想定した形式ではありません。ファイルを修正するか、別の場所へ移動してから再度お試しください`);
+    this.name = 'BrokenConfigError';
+    this.configPath = configPath;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
