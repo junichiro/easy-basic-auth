@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRules, escapeRegExp } from '../src/extension/lib/rules.js';
+import { buildRules } from '../src/extension/lib/rules.js';
 
 const baseEntry = {
   domain: 'dashboard.example.com',
@@ -9,12 +9,10 @@ const baseEntry = {
   password: 'pass',
 };
 
-describe('escapeRegExp', () => {
-  test('ドットなど正規表現の特殊文字をエスケープする', () => {
-    assert.equal(escapeRegExp('a.b-c'), 'a\\.b-c');
-    assert.equal(escapeRegExp('x*+?^$()[]{}|\\'), 'x\\*\\+\\?\\^\\$\\(\\)\\[\\]\\{\\}\\|\\\\');
-  });
-});
+// テストで urlFilter を正規表現に置き換えるときに使う
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Chrome の requestDomains と urlFilter の一致を、テスト用に簡略化して再現する。
 // urlFilter: 先頭の '|' は URL の先頭に固定、'^' は区切り文字 (英数字と _ - . % 以外) か URL の末尾

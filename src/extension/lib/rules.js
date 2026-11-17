@@ -9,10 +9,6 @@ const RESOURCE_TYPES = [
   'webtransport', 'webbundle', 'other',
 ];
 
-export function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function buildAuthorizationValue({ username, password }) {
   const credentials = new TextEncoder().encode(`${username}:${password}`);
   return `Basic ${bytesToBase64(credentials)}`;
