@@ -16,6 +16,7 @@ export const EXTENSION_FILES = Object.freeze([
   'lib/vault-crypto.js',
   'lib/rules.js',
   'lib/unlocker.js',
+  'lib/mutex.js',
 ]);
 
 // 旧バージョンが出力していた平文のファイル

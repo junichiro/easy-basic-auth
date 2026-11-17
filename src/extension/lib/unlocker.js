@@ -1,5 +1,6 @@
 import { deriveKey, decryptJson, VAULT_AAD, DecryptionError } from './vault-crypto.js';
 import { buildRules } from './rules.js';
+import { createMutex } from './mutex.js';
 
 export const LOCKED_BADGE_TEXT = 'LOCK';
 const LOCKED_BADGE_COLOR = '#8a8886';
@@ -16,6 +17,9 @@ const UNLOCKED_STORAGE_KEY = 'unlocked';
  * @param {() => Promise<object>} deps.loadVault vault.json を読み込む関数
  */
 export function createUnlocker({ dnr, storage, action, loadVault }) {
+  // ルールの読み出しと置き換えの間に別の解除・ロックが割り込まないよう、順番に実行する
+  const exclusive = createMutex();
+
   async function isUnlocked() {
     const items = await storage.get(UNLOCKED_STORAGE_KEY);
     return items[UNLOCKED_STORAGE_KEY] === true;
@@ -68,8 +72,8 @@ export function createUnlocker({ dnr, storage, action, loadVault }) {
 
   return {
     getStatus: async () => ({ unlocked: await isUnlocked() }),
-    unlock,
-    lock,
+    unlock: (password) => exclusive(() => unlock(password)),
+    lock: () => exclusive(lock),
     refreshBadge,
   };
 }

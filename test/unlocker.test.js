@@ -17,6 +17,9 @@ before(async () => {
   ], key, kdf);
 });
 
+// 処理の途中で他の処理が割り込めるよう、マクロタスク 1 回分待つ
+const yieldToOthers = () => new Promise((resolve) => setImmediate(resolve));
+
 // chrome.* API の最小限のフェイク
 function createFakeChrome() {
   let sessionRules = [];
@@ -27,8 +30,12 @@ function createFakeChrome() {
     badge,
     deps: {
       dnr: {
-        getSessionRules: async () => sessionRules,
+        getSessionRules: async () => {
+          await yieldToOthers();
+          return sessionRules;
+        },
         updateSessionRules: async ({ removeRuleIds = [], addRules = [] }) => {
+          await yieldToOthers();
           const remaining = sessionRules.filter((rule) => !removeRuleIds.includes(rule.id));
           const ids = new Set(remaining.map((rule) => rule.id));
           if (addRules.some((rule) => ids.has(rule.id))) throw new Error('duplicate rule id');
@@ -92,6 +99,24 @@ describe('createUnlocker', () => {
     assert.equal(fake.sessionRules().length, 0);
     assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
     assert.equal(fake.badge.text, LOCKED_BADGE_TEXT);
+  });
+});
+
+describe('createUnlocker の同時実行', () => {
+  test('解除が同時に 2 回来ても、ルール ID が重複せずに両方成功する', async () => {
+    const fake = createFakeChrome();
+    const unlocker = createUnlocker(fake.deps);
+    const results = await Promise.all([unlocker.unlock(MASTER), unlocker.unlock(MASTER)]);
+    assert.deepEqual(results.map((result) => result.ok), [true, true]);
+    assert.equal(fake.sessionRules().length, 2);
+  });
+
+  test('解除の直後にロックが来たら、受け付けた順に処理してロック状態で終わる', async () => {
+    const fake = createFakeChrome();
+    const unlocker = createUnlocker(fake.deps);
+    await Promise.all([unlocker.unlock(MASTER), unlocker.lock()]);
+    assert.equal(fake.sessionRules().length, 0);
+    assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
   });
 });
 
