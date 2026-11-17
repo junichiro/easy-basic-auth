@@ -7,8 +7,9 @@
 export function createMutex() {
   let tail = Promise.resolve();
   return (task) => {
-    const run = tail.then(task);
-    tail = run.catch(() => {});
+    // 前の処理の戻り値を引数に渡さず、tail にも結果を残さない (次の呼び出しまで保持されるのを防ぐ)
+    const run = tail.then(() => task());
+    tail = run.then(() => {}, () => {});
     return run;
   };
 }
