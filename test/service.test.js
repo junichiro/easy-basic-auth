@@ -241,6 +241,62 @@ describe('エントリ操作と生成', () => {
   });
 });
 
+describe('拡張機能の書き出しが途中で失敗したとき', () => {
+  // manifest.json の場所に空でないディレクトリを置き、manifest.json の書き込みだけを失敗させる
+  function breakManifest(configDir) {
+    const manifestPath = path.join(configDir, 'extension', 'manifest.json');
+    fs.rmSync(manifestPath, { force: true });
+    fs.mkdirSync(manifestPath);
+    fs.writeFileSync(path.join(manifestPath, 'blocker'), '');
+    return () => fs.rmSync(manifestPath, { recursive: true, force: true });
+  }
+
+  function assertConsistent(configDir) {
+    const manifest = readJson(configDir, 'extension', 'manifest.json');
+    const vault = readJson(configDir, 'extension', 'vault.json');
+    const config = readJson(configDir, 'config.json');
+    assert.equal(vault.extensionVersion, manifest.version);
+    assert.equal(`1.0.${config.extensionVersionCounter}`, manifest.version);
+  }
+
+  async function setupBroken() {
+    const context = makeService();
+    await context.service.setup(MASTER);
+    const before = readJson(context.configDir, 'config.json');
+    const repair = breakManifest(context.configDir);
+    return { ...context, before, repair };
+  }
+
+  test('manifest.json を書き込めなければエラーになり、config.json は更新しない', async () => {
+    const { service, configDir, before } = await setupBroken();
+    await assert.rejects(service.addEntry(entryInput));
+    assert.deepEqual(readJson(configDir, 'config.json'), before);
+    assert.deepEqual((await service.getState()).entries, []);
+  });
+
+  test('原因を取り除いて同じ保存をやり直すと、vault.json・manifest.json・config.json がそろう', async () => {
+    const { service, configDir, repair } = await setupBroken();
+    await assert.rejects(service.addEntry(entryInput));
+    repair();
+    const state = await service.addEntry(entryInput);
+    assert.equal(state.extensionVersion, '1.0.2');
+    assert.equal(state.entries.length, 1);
+    assertConsistent(configDir);
+    assert.equal((await decryptExtensionVault(configDir, MASTER)).entries.length, 1);
+  });
+
+  test('原因を取り除いて再生成すると、vault.json・manifest.json・config.json がそろう', async () => {
+    const { service, configDir, repair } = await setupBroken();
+    await assert.rejects(service.addEntry(entryInput));
+    repair();
+    const state = await service.regenerate();
+    assert.equal(state.extensionVersion, '1.0.2');
+    assert.deepEqual(state.entries, []);
+    assertConsistent(configDir);
+    assert.deepEqual(await decryptExtensionVault(configDir, MASTER), { entries: [] });
+  });
+});
+
 describe('マスターパスワードの変更', () => {
   const NEXT = 'next master password 5678';
 

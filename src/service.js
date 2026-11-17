@@ -54,8 +54,10 @@ export function createEntryService({ configDir, session, generateId = crypto.ran
     const nextCounter = counter + 1;
     const config = await sealConfig({ counter: nextCounter, kdf, key, entries });
     const vault = await buildExtensionVault(entries, key, kdf, formatExtensionVersion(nextCounter));
-    writeConfig(configDir, config);
+    // 拡張機能を先に書き、config.json は最後に書く。拡張機能の書き出しが途中で失敗しても
+    // config.json (counter) は元のままなので、同じ保存や再生成をやり直せば同じ version で書き直してそろう
     writeExtension(extensionDir, { manifest: buildManifest(entries, nextCounter), vault });
+    writeConfig(configDir, config);
     return toState(entries, nextCounter);
   }
 
