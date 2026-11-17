@@ -100,6 +100,48 @@ describe('updateEntry', () => {
   test('ドメインを更新するときも正規化する', () => {
     assert.equal(updateEntry(existing, { domain: 'HTTPS://New.Example.com/' }).domain, 'new.example.com');
   });
+
+  describe('既定のラベル (ラベル = ドメイン) の追従', () => {
+    const defaultLabeled = { ...existing, label: 'old.example.com' };
+
+    test('旧ドメインと同じラベルのままドメインを変えると、ラベルは新しいドメインになる', () => {
+      const updated = updateEntry(defaultLabeled, { label: 'old.example.com', domain: 'new.example.com' });
+      assert.equal(updated.label, 'new.example.com');
+    });
+
+    test('ラベルを省略してドメインを変えると、ラベルは新しいドメインになる', () => {
+      assert.equal(updateEntry(defaultLabeled, { domain: 'new.example.com' }).label, 'new.example.com');
+    });
+
+    test('ラベルを空にしてドメインを変えると、ラベルは新しいドメインになる', () => {
+      const updated = updateEntry(defaultLabeled, { label: '', domain: 'new.example.com' });
+      assert.equal(updated.label, 'new.example.com');
+    });
+
+    test('ドメインを正規化した結果で追従する', () => {
+      const updated = updateEntry(defaultLabeled, { label: 'old.example.com', domain: 'HTTPS://New.Example.com/' });
+      assert.equal(updated.label, 'new.example.com');
+    });
+
+    test('既定のラベルでも、別のラベルを送ればそのラベルを使う', () => {
+      const updated = updateEntry(defaultLabeled, { label: '本番', domain: 'new.example.com' });
+      assert.equal(updated.label, '本番');
+    });
+
+    test('ドメインを変えなければ既定のラベルはそのまま', () => {
+      const updated = updateEntry(defaultLabeled, { label: 'old.example.com', username: 'new' });
+      assert.equal(updated.label, 'old.example.com');
+    });
+
+    test('カスタムのラベルはドメインを変えても維持する', () => {
+      const updated = updateEntry(existing, { label: '旧', domain: 'new.example.com' });
+      assert.equal(updated.label, '旧');
+    });
+
+    test('カスタムのラベルはラベルを省略してドメインを変えても維持する', () => {
+      assert.equal(updateEntry(existing, { domain: 'new.example.com' }).label, '旧');
+    });
+  });
 });
 
 describe('toPublicEntry', () => {

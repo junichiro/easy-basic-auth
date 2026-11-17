@@ -98,7 +98,20 @@ export function createEntry(input, generateId = crypto.randomUUID) {
 export function updateEntry(existing, input) {
   const changes = pickEditableFields(input);
   if (!changes.password) delete changes.password;
-  return { id: existing.id, ...normalizeEntryFields({ ...existing, ...changes }) };
+  const updated = normalizeEntryFields({ ...existing, ...changes });
+  if (followsDefaultLabel(existing, changes, updated)) updated.label = updated.domain;
+  return { id: existing.id, ...updated };
+}
+
+/**
+ * 既定のラベル (ラベル = ドメイン) のままドメインだけが変わった場合、ラベルも新しいドメインに追従させるかを判定する。
+ * ユーザーが別のラベルを明示的に送ってきた場合は追従させない。
+ */
+function followsDefaultLabel(existing, changes, updated) {
+  if (existing.label !== existing.domain) return false;
+  if (updated.domain === existing.domain) return false;
+  const submittedLabel = asString(changes.label ?? existing.label).trim();
+  return submittedLabel === '' || submittedLabel === existing.domain;
 }
 
 export function assertUniqueDomain(entries, candidate) {
