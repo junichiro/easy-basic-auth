@@ -1,8 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getConfigStatus, sealConfig, openConfig, readConfigEntries, UnsupportedConfigError, BrokenConfigError } from '../src/vault.js';
+import { getConfigStatus, sealConfig, openConfig, readConfigEntries, UnsupportedConfigError } from '../src/vault.js';
 import { createKdfParams, deriveKey, DecryptionError, bytesToBase64, IV_BYTES } from '../src/extension/lib/vault-crypto.js';
-import { StateError } from '../src/errors.js';
+import { StateError, BrokenConfigError } from '../src/errors.js';
 
 const PASSWORD = 'master password 1234';
 const entries = [{ id: '1', domain: 'a.example.com', username: 'u', password: 'secret-p' }];

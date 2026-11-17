@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createEntryService, StateError } from '../src/service.js';
+import { createEntryService } from '../src/service.js';
 import { createSession, LockedError } from '../src/session.js';
 import { ValidationError } from '../src/entries.js';
-import { UnsupportedConfigError, BrokenConfigError } from '../src/vault.js';
+import { UnsupportedConfigError } from '../src/vault.js';
+import { StateError, BrokenConfigError } from '../src/errors.js';
 import { deriveKey, decryptJson, VAULT_AAD, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 
 const MASTER = 'master password 1234';

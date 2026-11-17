@@ -17,8 +17,6 @@ export class NotFoundError extends Error {
   }
 }
 
-export { StateError };
-
 function findEntryIndex(entries, id) {
   const index = entries.findIndex((entry) => entry.id === id);
   if (index === -1) throw new NotFoundError(`Entry not found: ${id}`);

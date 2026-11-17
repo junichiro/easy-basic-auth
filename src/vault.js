@@ -1,9 +1,6 @@
 import { deriveKey, encryptJson, decryptJson, base64ToBytes, VAULT_AAD, IV_BYTES } from './extension/lib/vault-crypto.js';
 import { StateError, BrokenConfigError } from './errors.js';
 
-// 既存の import (vault.js から BrokenConfigError を読む側) を壊さないよう再エクスポートする
-export { BrokenConfigError };
-
 const LEGACY_VERSION = 1;
 export const CONFIG_VERSION = 2;
 

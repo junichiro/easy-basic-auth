@@ -9,8 +9,7 @@ import {
   writeConfig,
   getConfigPath,
 } from '../src/config.js';
-import { BrokenConfigError } from '../src/vault.js';
-import { StateError } from '../src/errors.js';
+import { StateError, BrokenConfigError } from '../src/errors.js';
 
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'eba-config-'));

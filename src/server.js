@@ -5,7 +5,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveConfigDir } from './config.js';
 import { ValidationError } from './entries.js';
-import { createEntryService, NotFoundError, StateError } from './service.js';
+import { createEntryService, NotFoundError } from './service.js';
+import { StateError } from './errors.js';
 import { createSession, LockedError } from './session.js';
 
 const DEFAULT_PORT = 4729;
