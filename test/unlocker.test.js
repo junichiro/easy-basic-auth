@@ -6,6 +6,8 @@ import { createKdfParams, deriveKey } from '../src/extension/lib/vault-crypto.js
 
 const MASTER = 'master password 1234';
 const EXTENSION_ID = 'test-extension-id';
+// https のみのエントリ 2 件 × スキーム (https・wss) 2 つ
+const EXPECTED_RULE_COUNT = 4;
 let vault;
 
 before(async () => {
@@ -68,8 +70,8 @@ describe('createUnlocker', () => {
   test('正しいマスターパスワードでセッションルールを登録する', async () => {
     const fake = createFakeChrome();
     const unlocker = createUnlocker(fake.deps);
-    assert.deepEqual(await unlocker.unlock(MASTER), { ok: true, ruleCount: 2 });
-    assert.equal(fake.sessionRules().length, 2);
+    assert.deepEqual(await unlocker.unlock(MASTER), { ok: true, ruleCount: EXPECTED_RULE_COUNT });
+    assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
     assert.deepEqual(await unlocker.getStatus(), { unlocked: true });
     assert.equal(fake.badge.text, '');
   });
@@ -89,7 +91,7 @@ describe('createUnlocker', () => {
     const unlocker = createUnlocker(fake.deps);
     await unlocker.unlock(MASTER);
     await unlocker.unlock(MASTER);
-    assert.equal(fake.sessionRules().length, 2);
+    assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
   });
 
   test('ロックするとセッションルールを削除する', async () => {
@@ -140,7 +142,7 @@ describe('createUnlocker の version 確認', () => {
       loadVault: async () => ({ ...vault, extensionVersion: '1.0.1' }),
       manifestVersion: '1.0.1',
     });
-    assert.deepEqual(await createUnlocker(fake.deps).unlock(MASTER), { ok: true, ruleCount: 2 });
+    assert.deepEqual(await createUnlocker(fake.deps).unlock(MASTER), { ok: true, ruleCount: EXPECTED_RULE_COUNT });
   });
 
   test('version を記録していない古い vault でも解除できる', async () => {
@@ -155,7 +157,7 @@ describe('createUnlocker の同時実行', () => {
     const unlocker = createUnlocker(fake.deps);
     const results = await Promise.all([unlocker.unlock(MASTER), unlocker.unlock(MASTER)]);
     assert.deepEqual(results.map((result) => result.ok), [true, true]);
-    assert.equal(fake.sessionRules().length, 2);
+    assert.equal(fake.sessionRules().length, EXPECTED_RULE_COUNT);
   });
 
   test('解除の直後にロックが来たら、受け付けた順に処理してロック状態で終わる', async () => {

@@ -20,16 +20,19 @@ function buildAuthorizationValue({ username, password }) {
 
 // 既定では https / wss だけに送る。http (平文) は allowHttp で明示的に許可したエントリだけ。
 // allowHttp を持たない以前の保存データは https のみとして扱う
-function buildSchemePattern({ allowHttp }) {
-  return allowHttp === true ? '(?:https?|wss?)' : '(?:https|wss)';
+const SECURE_SCHEMES = ['https', 'wss'];
+const PLAINTEXT_SCHEMES = ['http', 'ws'];
+
+function schemesOf({ allowHttp }) {
+  return allowHttp === true ? [...SECURE_SCHEMES, ...PLAINTEXT_SCHEMES] : SECURE_SCHEMES;
 }
 
-// requestDomains はサブドメインにもマッチするため、完全一致が必要な場合は regexFilter を使う。
-// サブドメイン込みでも、スキームを限るために regexFilter を併用する
-function buildDomainCondition(entry) {
-  const scheme = buildSchemePattern(entry);
-  if (entry.includeSubdomains) return { requestDomains: [entry.domain], regexFilter: `^${scheme}://` };
-  return { regexFilter: `^${scheme}://${escapeRegExp(entry.domain)}(?::\\d+)?/` };
+// requestDomains でホストをドメイン (とサブドメイン) に限り、urlFilter でスキームを限る。
+// 完全一致では urlFilter にホスト名まで含め、後ろを区切り文字 (^: ポートの ':' やパスの '/') に固定する。
+// regexFilter は使わない (Chrome の正規表現のサイズ上限により、長いホスト名のルールが登録できないため)
+function buildCondition({ domain, includeSubdomains }, scheme) {
+  const urlFilter = includeSubdomains ? `|${scheme}://` : `|${scheme}://${domain}^`;
+  return { requestDomains: [domain], urlFilter };
 }
 
 // 重なるルール (example.com のサブドメイン込みと api.example.com など) では、
@@ -38,21 +41,20 @@ function buildPriority({ domain, includeSubdomains }) {
   return domain.split('.').length * 2 + (includeSubdomains ? 0 : 1);
 }
 
-function buildRule(entry, id) {
-  return {
-    id,
-    priority: buildPriority(entry),
-    action: {
-      type: 'modifyHeaders',
-      requestHeaders: [
-        { header: 'Authorization', operation: 'set', value: buildAuthorizationValue(entry) },
-      ],
-    },
-    condition: {
-      ...buildDomainCondition(entry),
-      resourceTypes: [...RESOURCE_TYPES],
-    },
+// urlFilter は 1 つのスキームしか表せないため、エントリのスキームごとにルールを作る (ID は後で振る)
+function buildEntryRules(entry) {
+  const priority = buildPriority(entry);
+  const action = {
+    type: 'modifyHeaders',
+    requestHeaders: [
+      { header: 'Authorization', operation: 'set', value: buildAuthorizationValue(entry) },
+    ],
   };
+  return schemesOf(entry).map((scheme) => ({
+    priority,
+    action,
+    condition: { ...buildCondition(entry, scheme), resourceTypes: [...RESOURCE_TYPES] },
+  }));
 }
 
 /**
@@ -60,5 +62,5 @@ function buildRule(entry, id) {
  * ルール ID は 1 から振る。
  */
 export function buildRules(entries) {
-  return entries.map((entry, index) => buildRule(entry, index + 1));
+  return entries.flatMap(buildEntryRules).map((rule, index) => ({ id: index + 1, ...rule }));
 }
