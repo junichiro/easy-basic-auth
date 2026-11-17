@@ -9,6 +9,7 @@ import { validateMasterPassword, MIN_MASTER_PASSWORD_LENGTH } from './master-pas
 import { LockedError } from './session.js';
 import { getConfigStatus, getLegacyEntries, sealConfig, openConfig, readConfigEntries } from './vault.js';
 import { createKdfParams, deriveKey, DecryptionError } from './extension/lib/vault-crypto.js';
+import { createMutex } from './extension/lib/mutex.js';
 
 export class NotFoundError extends Error {
   constructor(message) {
@@ -25,22 +26,13 @@ function findEntryIndex(entries, id) {
   return index;
 }
 
-// 非同期の書き込み処理が交互に実行されて更新が失われないよう、順番に実行する
-function createMutex() {
-  let tail = Promise.resolve();
-  return (task) => {
-    const run = tail.then(task);
-    tail = run.catch(() => {});
-    return run;
-  };
-}
-
 /**
  * エントリの CRUD、マスターパスワードによる暗号化、拡張機能の生成をまとめるアプリケーションサービス。
  * 設定を保存するたびに拡張機能も再生成する。
  */
 export function createEntryService({ configDir, session, generateId = crypto.randomUUID, kdfIterations }) {
   const extensionDir = getExtensionDir(configDir);
+  // 非同期の書き込み処理が交互に実行されて更新が失われないよう、順番に実行する
   const exclusive = createMutex();
 
   function toState(entries, counter) {
