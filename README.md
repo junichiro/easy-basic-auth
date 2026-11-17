@@ -36,7 +36,7 @@ npm start            # または node src/server.js
    └─▶ extension/vault.json   有効なエントリを同じ鍵で暗号化
 
 [拡張機能] ポップアップで入力 → service worker が vault.json を復号
-          → declarativeNetRequest のセッションルールに登録（メモリのみ・ブラウザ終了で消える）
+          → declarativeNetRequest のセッションルールに登録（メモリのみ・ブラウザのプロセス終了で消える）
 ```
 
 | 項目 | 値 |
@@ -83,6 +83,7 @@ npm start            # または node src/server.js
 - 対象の**ドメイン名**は拡張機能の `manifest.json`（`host_permissions`）に平文で残ります。ユーザー名・パスワード・ラベルは暗号化されます
 - 設定 UI のサーバーを、同じ CONFIG_DIR に対して複数同時に起動しないでください（書き込みの排他は 1 プロセス内のみです）
 - 解除後の認証情報はブラウザのメモリ上にあります。自分のユーザー権限で動くマルウェアに対する完全な防御にはなりません
+- 解除した状態は、ブラウザのプロセスが終わるまで続きます。Edge の「スタートアップ ブースト」や「Microsoft Edge が終了してもバックグラウンドの拡張機能とアプリの実行を続行する」が ON だと（Windows では既定で ON のことがあります）、ウィンドウをすべて閉じてもプロセスが残り、解除したままになります。席を離れるときなどは、拡張機能のポップアップの「ロック」でロックしてください
 - 対象ホストへのリクエストでは、`Authorization` ヘッダーを常に Basic 認証の値で上書きします（拡張機能の API に「ヘッダーが無いときだけ付ける」条件がないため）。「サブドメインを含む」で登録した配下に、`Authorization: Bearer ...` などを使う Basic 認証なしの API があると、その API は認証に失敗します。その場合は「サブドメインを含む」を OFF にし、必要なホストだけを個別に登録してください
 
 ## 開発
@@ -99,6 +100,9 @@ src/
 ├ vault.js             # config.json (v2) の暗号化/復号・v1 判定
 ├ master-password.js   # マスターパスワードの検証
 ├ entries.js           # エントリの入力検証・正規化
+├ public-suffix.js     # 「サブドメインを含む」を付けられない共有ドメインの判定
+├ migration.js         # v1 (平文) のエントリの移行
+├ errors.js            # 状態のエラー (409) の型
 ├ config.js            # CONFIG_DIR 解決、config.json の読み書き
 ├ generate.js          # manifest.json / vault.json 生成と拡張機能の書き出し
 ├ secure-fs.js         # アトミック書き込み・パーミッション設定
@@ -106,5 +110,5 @@ src/
 └ extension/           # 生成される拡張機能のソース（そのままコピーされる）
    ├ background.js     # service worker
    ├ popup.*           # 解除用ポップアップ
-   └ lib/              # Node と共用: vault-crypto.js, rules.js, unlocker.js
+   └ lib/              # Node と共用: vault-crypto.js, rules.js, unlocker.js, mutex.js
 ```
