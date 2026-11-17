@@ -39,7 +39,7 @@ class HttpError extends Error {
   }
 }
 
-const routes = [
+const ROUTES = [
   { method: 'GET', pattern: /^\/api\/status$/, handle: ({ service }) => [200, service.getStatus()] },
   { method: 'POST', pattern: /^\/api\/setup$/, handle: ({ service, body }) => [200, service.setup(body.masterPassword)] },
   { method: 'POST', pattern: /^\/api\/unlock$/, handle: ({ service, body }) => [200, service.unlock(body.masterPassword)] },
@@ -98,7 +98,7 @@ function decodeRouteParam(param) {
 }
 
 function matchRoute(method, pathname) {
-  const candidates = routes
+  const candidates = ROUTES
     .map((route) => ({ route, match: route.pattern.exec(pathname) }))
     .filter(({ match }) => match);
   if (candidates.length === 0) throw new HttpError(404, 'Not found');
