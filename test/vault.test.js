@@ -129,12 +129,20 @@ describe('getConfigStatus: v2 の中身の検証', () => {
     ['vault.ciphertext が空文字', (c) => ({ ...c, vault: { ...c.vault, ciphertext: '' } })],
     ['vault.iv の長さが短い', (c) => ({ ...c, vault: { ...c.vault, iv: bytesToBase64(new Uint8Array(IV_BYTES - 1)) } })],
     ['vault.iv の長さが長い', (c) => ({ ...c, vault: { ...c.vault, iv: bytesToBase64(new Uint8Array(IV_BYTES + 4)) } })],
+    ['vault.ciphertext が AES-GCM のタグ (16 バイト) より短い', (c) => ({ ...c, vault: { ...c.vault, ciphertext: 'AAAAAA==' } })],
+    ['kdf.iterations が WebCrypto の受け付けない大きさ', (c) => ({ ...c, kdf: { ...c.kdf, iterations: 2 ** 32 } })],
+    ['kdf.iterations が解除に長時間かかる大きさ', (c) => ({ ...c, kdf: { ...c.kdf, iterations: 2_000_000_000 } })],
   ];
   for (const [label, change] of brokenV2) {
     test(`壊れた v2 (${label}) は BrokenConfigError にする`, async () => {
       assertBroken(await sealedWith(change));
     });
   }
+
+  test('既定の回数 (2,000,000 回) の kdf は有効', async () => {
+    const config = await sealedWith((c) => ({ ...c, kdf: { ...c.kdf, iterations: 2_000_000 } }));
+    assert.deepEqual(getConfigStatus(config), { initialized: true, needsMigration: false });
+  });
 
   test('v2 の extensionVersionCounter が 0 なら有効', async () => {
     const config = await sealedWith((c) => ({ ...c, extensionVersionCounter: 0 }));

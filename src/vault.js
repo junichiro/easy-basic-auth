@@ -1,4 +1,6 @@
-import { deriveKey, encryptJson, decryptJson, base64ToBytes, VAULT_AAD, IV_BYTES } from './extension/lib/vault-crypto.js';
+import {
+  deriveKey, encryptJson, decryptJson, base64ToBytes, VAULT_AAD, IV_BYTES, DEFAULT_KDF_ITERATIONS,
+} from './extension/lib/vault-crypto.js';
 import { StateError, BrokenConfigError } from './errors.js';
 
 const LEGACY_VERSION = 1;
@@ -21,6 +23,11 @@ function isValidVersion(version) {
 
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const SUPPORTED_KDF_HASHES = new Set(['SHA-256', 'SHA-384', 'SHA-512']);
+// 将来の既定値の引き上げに余裕を持たせつつ、WebCrypto が受け付けない値や、
+// 解除に何分もかかる (その間、保存も待たされる) 値は壊れた config として扱う
+const MAX_KDF_ITERATIONS = DEFAULT_KDF_ITERATIONS * 50;
+// AES-GCM の暗号文は、少なくとも認証タグ (16 バイト) を含む
+const GCM_TAG_BYTES = 16;
 
 function isNonNegativeInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -40,12 +47,21 @@ function isValidIv(value) {
 function isValidKdf(kdf) {
   if (!isPlainObject(kdf)) return false;
   if (kdf.name !== 'PBKDF2' || !SUPPORTED_KDF_HASHES.has(kdf.hash)) return false;
-  return Number.isInteger(kdf.iterations) && kdf.iterations > 0 && isNonEmptyBase64(kdf.salt);
+  return isValidKdfIterations(kdf.iterations) && isNonEmptyBase64(kdf.salt);
+}
+
+function isValidKdfIterations(iterations) {
+  return Number.isInteger(iterations) && iterations > 0 && iterations <= MAX_KDF_ITERATIONS;
+}
+
+// 短すぎる暗号文は復号で必ず失敗し、「マスターパスワードが違います」と区別できないため、ここで弾く
+function isValidCiphertext(value) {
+  return isNonEmptyBase64(value) && base64ToBytes(value).length >= GCM_TAG_BYTES;
 }
 
 // decryptJson に渡せる形か (encryptJson が作る形)
 function isValidSealedVault(vault) {
-  return isPlainObject(vault) && isValidIv(vault.iv) && isNonEmptyBase64(vault.ciphertext);
+  return isPlainObject(vault) && isValidIv(vault.iv) && isValidCiphertext(vault.ciphertext);
 }
 
 function isValidV2Config(config) {
