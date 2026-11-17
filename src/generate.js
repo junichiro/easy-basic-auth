@@ -44,6 +44,28 @@ export function formatExtensionVersion(counter) {
   return `1.${Math.floor(counter / VERSION_PART_LIMIT)}.${counter % VERSION_PART_LIMIT}`;
 }
 
+const VERSION_PATTERN = /^1\.(\d+)\.(\d+)$/;
+
+/**
+ * 書き出し済みの manifest.json の version をカウンターに戻す。
+ * 無い・読めない・このツールの形式でなければ 0 にする。
+ * config.json を消して初期設定し直したときや、config.json の書き込みに失敗したときに、
+ * 読み込み済みの拡張機能と同じ version を別の内容で使い回さないために使う
+ */
+export function readExtensionCounter(extensionDir) {
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
+  } catch {
+    return 0;
+  }
+  const match = VERSION_PATTERN.exec(manifest?.version ?? '');
+  if (!match) return 0;
+  const [high, low] = [Number(match[1]), Number(match[2])];
+  if (low >= VERSION_PART_LIMIT) return 0;
+  return high * VERSION_PART_LIMIT + low;
+}
+
 export function buildManifest(entries, counter) {
   return {
     manifest_version: 3,

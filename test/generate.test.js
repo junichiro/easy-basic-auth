@@ -8,6 +8,7 @@ import {
   selectExtensionEntries,
   buildExtensionVault,
   formatExtensionVersion,
+  readExtensionCounter,
   writeExtension,
   EXTENSION_FILES,
 } from '../src/generate.js';
@@ -81,6 +82,28 @@ describe('formatExtensionVersion', () => {
   test('各部分が Chromium の上限 65535 を超えないよう繰り上げる', () => {
     assert.equal(formatExtensionVersion(65536), '1.1.0');
     assert.equal(formatExtensionVersion(65536 * 2 + 5), '1.2.5');
+  });
+});
+
+describe('readExtensionCounter', () => {
+  function writeManifest(manifestJson) {
+    const extensionDir = path.join(makeTempDir(), 'extension');
+    fs.mkdirSync(extensionDir);
+    fs.writeFileSync(path.join(extensionDir, 'manifest.json'), manifestJson);
+    return extensionDir;
+  }
+
+  test('生成済みの manifest の version をカウンターに戻す', () => {
+    assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '1.0.12' }))), 12);
+    assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '1.2.5' }))), 65536 * 2 + 5);
+  });
+
+  test('manifest が無い・読めない・このツールの形式でなければ 0 にする', () => {
+    assert.equal(readExtensionCounter(path.join(makeTempDir(), 'extension')), 0);
+    assert.equal(readExtensionCounter(writeManifest('{')), 0);
+    assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '2.0.1' }))), 0);
+    assert.equal(readExtensionCounter(writeManifest(JSON.stringify({ version: '1.0.70000' }))), 0);
+    assert.equal(readExtensionCounter(writeManifest('null')), 0);
   });
 });
 
