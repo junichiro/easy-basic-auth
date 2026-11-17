@@ -267,6 +267,9 @@ async function submitEntryForm(event) {
   event.preventDefault();
   showMessage(elements.formError, '');
   const input = readEntryForm();
+  // ダブルクリックで同じ保存が 2 回送られないよう、応答が返るまでボタンを無効にする
+  const submitButton = elements.form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
   try {
     state = editingId
       ? await callApi('PUT', `/api/entries/${encodeURIComponent(editingId)}`, input)
@@ -277,6 +280,8 @@ async function submitEntryForm(event) {
     if (!status.unlocked) return;
     showMessage(elements.formError, error.message);
     return;
+  } finally {
+    submitButton.disabled = false;
   }
   closeForm();
   renderState();
