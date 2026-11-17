@@ -27,8 +27,12 @@ export function getExtensionDir(configDir) {
   return path.join(configDir, 'extension');
 }
 
+export function getConfigPath(configDir) {
+  return path.join(configDir, CONFIG_FILE_NAME);
+}
+
 export function readConfig(configDir) {
-  const filePath = path.join(configDir, CONFIG_FILE_NAME);
+  const filePath = getConfigPath(configDir);
   if (!fs.existsSync(filePath)) return null;
 
   const raw = fs.readFileSync(filePath, 'utf8');
@@ -41,5 +45,5 @@ export function readConfig(configDir) {
 
 export function writeConfig(configDir, config) {
   ensurePrivateDir(configDir);
-  writeJsonAtomic(path.join(configDir, CONFIG_FILE_NAME), config);
+  writeJsonAtomic(getConfigPath(configDir), config);
 }

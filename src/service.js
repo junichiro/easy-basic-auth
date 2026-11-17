@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
-import path from 'node:path';
-import { readConfig, writeConfig, getExtensionDir } from './config.js';
+import { readConfig, writeConfig, getExtensionDir, getConfigPath } from './config.js';
 import { buildManifest, buildExtensionVault, writeExtension, formatExtensionVersion } from './generate.js';
 import { createEntry, updateEntry, toPublicEntry, assertUniqueDomain, ValidationError } from './entries.js';
 import { StateError } from './errors.js';
@@ -32,7 +31,7 @@ function findEntryIndex(entries, id) {
  */
 export function createEntryService({ configDir, session, generateId = crypto.randomUUID, kdfIterations }) {
   const extensionDir = getExtensionDir(configDir);
-  const configPath = path.join(configDir, 'config.json');
+  const configPath = getConfigPath(configDir);
   // 非同期の書き込み処理が交互に実行されて更新が失われないよう、順番に実行する
   const exclusive = createMutex();
 

@@ -7,6 +7,7 @@ import {
   resolveConfigDir,
   readConfig,
   writeConfig,
+  getConfigPath,
 } from '../src/config.js';
 import { BrokenConfigError } from '../src/vault.js';
 import { StateError } from '../src/errors.js';
@@ -42,6 +43,18 @@ describe('resolveConfigDir', () => {
       homedir: 'C:\\Users\\u',
     });
     assert.equal(dir, path.join('C:\\Users\\u\\AppData\\Roaming', 'edge-basic-auth'));
+  });
+});
+
+describe('getConfigPath', () => {
+  test('設定ディレクトリ直下の config.json のパスを返す', () => {
+    assert.equal(getConfigPath('/home/u/.config/edge-basic-auth'), path.join('/home/u/.config/edge-basic-auth', 'config.json'));
+  });
+
+  test('writeConfig はこのパスに書き込む', () => {
+    const dir = makeTempDir();
+    writeConfig(dir, { version: 2 });
+    assert.equal(fs.existsSync(getConfigPath(dir)), true);
   });
 });
 
