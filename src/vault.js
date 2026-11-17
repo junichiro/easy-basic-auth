@@ -11,6 +11,14 @@ export class UnsupportedConfigError extends StateError {
   }
 }
 
+// 旧形式のエントリがあるか。配列でない値 (手編集・破損) も空とはみなさず、
+// 移行時の検証 (normalizeLegacyEntries) でエラーとして報告させる
+function hasLegacyEntries(entries) {
+  if (entries === undefined || entries === null) return false;
+  if (!Array.isArray(entries)) return true;
+  return entries.length > 0;
+}
+
 /**
  * config.json の状態を判定する。
  * - v1: 旧形式（平文）。エントリがあれば移行が必要
@@ -20,7 +28,7 @@ export function getConfigStatus(config) {
   if (!config) return { initialized: false, needsMigration: false };
   if (config.version === CONFIG_VERSION) return { initialized: true, needsMigration: false };
   if (config.version === LEGACY_VERSION) {
-    return { initialized: false, needsMigration: (config.entries ?? []).length > 0 };
+    return { initialized: false, needsMigration: hasLegacyEntries(config.entries) };
   }
   throw new UnsupportedConfigError(config.version);
 }

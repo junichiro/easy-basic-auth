@@ -16,11 +16,21 @@ function toMigrationError(error, entry, configPath) {
   );
 }
 
+// entries 自体が配列でなければ、個々の登録を検証する前に config.json の修正を促す
+function assertEntriesArray(entries, configPath) {
+  if (Array.isArray(entries)) return;
+  throw new ValidationError(
+    '移行できません: config.json の entries が配列ではありません。'
+    + `${configPath} を直接編集して entries を配列 ([...]) に修正してから再度お試しください`,
+  );
+}
+
 /**
  * 旧形式 (v1・平文) のエントリを、新規登録と同じ検証・正規化に通す。
  * ID が文字列でない・重複している場合は振り直し、ドメインの重複はエラーにする。
  */
 export function normalizeLegacyEntries(entries, { generateId, configPath }) {
+  assertEntriesArray(entries, configPath);
   const usedIds = new Set();
   return entries.reduce((normalized, entry) => {
     try {

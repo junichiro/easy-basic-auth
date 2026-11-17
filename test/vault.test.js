@@ -28,6 +28,11 @@ describe('getConfigStatus', () => {
     assert.deepEqual(getConfigStatus(v1), { initialized: false, needsMigration: false });
   });
 
+  test('entries が配列でない v1 は、空とみなさず移行が必要として扱う', () => {
+    const v1 = { version: 1, extensionVersionCounter: 0, entries: { a: entries[0] } };
+    assert.deepEqual(getConfigStatus(v1), { initialized: false, needsMigration: true });
+  });
+
   test('v2 は初期化済み', async () => {
     const { config } = await makeSealed();
     assert.deepEqual(getConfigStatus(config), { initialized: true, needsMigration: false });
