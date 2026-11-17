@@ -20,14 +20,14 @@ describe('buildRules', () => {
   test('includeSubdomains が false のときは regexFilter で完全一致させる', () => {
     const [rule] = buildRules([baseEntry]);
     assert.equal(rule.condition.requestDomains, undefined);
-    assert.equal(rule.condition.regexFilter, '^(?:https?|wss?)://dashboard\\.example\\.com(?::\\d+)?/');
+    assert.equal(rule.condition.regexFilter, '^(?:https|wss)://dashboard\\.example\\.com(?::\\d+)?/');
   });
 
   test('regexFilter は対象ドメインに一致し、サブドメインや似たドメインには一致しない', () => {
     const [rule] = buildRules([baseEntry]);
     const re = new RegExp(rule.condition.regexFilter);
     assert.ok(re.test('https://dashboard.example.com/'));
-    assert.ok(re.test('http://dashboard.example.com:8080/path?q=1'));
+    assert.ok(re.test('https://dashboard.example.com:8443/path?q=1'));
     assert.ok(re.test('wss://dashboard.example.com/socket'));
     assert.ok(!re.test('https://sub.dashboard.example.com/'));
     assert.ok(!re.test('https://dashboardXexample.com/'));
@@ -35,10 +35,49 @@ describe('buildRules', () => {
     assert.ok(!re.test('https://evil.test/?u=https://dashboard.example.com/'));
   });
 
-  test('includeSubdomains が true のときは requestDomains を使う', () => {
+  test('includeSubdomains が true のときは requestDomains を使い、スキームを regexFilter で https に限る', () => {
     const [rule] = buildRules([{ ...baseEntry, includeSubdomains: true }]);
     assert.deepEqual(rule.condition.requestDomains, ['dashboard.example.com']);
-    assert.equal(rule.condition.regexFilter, undefined);
+    assert.equal(rule.condition.regexFilter, '^(?:https|wss)://');
+  });
+
+  describe('http (平文) の扱い', () => {
+    const plainUrls = [
+      'http://dashboard.example.com/',
+      'http://dashboard.example.com:8080/path?q=1',
+      'ws://dashboard.example.com/socket',
+    ];
+
+    test('allowHttp がなければ、完全一致のルールは http・ws に一致しない', () => {
+      const [rule] = buildRules([baseEntry]);
+      const re = new RegExp(rule.condition.regexFilter);
+      for (const url of plainUrls) assert.ok(!re.test(url), url);
+    });
+
+    test('allowHttp がなければ、サブドメイン込みのルールも http・ws に一致しない', () => {
+      const [rule] = buildRules([{ ...baseEntry, includeSubdomains: true }]);
+      const re = new RegExp(rule.condition.regexFilter);
+      for (const url of [...plainUrls, 'http://sub.dashboard.example.com/']) assert.ok(!re.test(url), url);
+      assert.ok(re.test('https://sub.dashboard.example.com/'));
+    });
+
+    test('allowHttp が true なら、完全一致のルールは http・ws にも一致する', () => {
+      const [rule] = buildRules([{ ...baseEntry, allowHttp: true }]);
+      const re = new RegExp(rule.condition.regexFilter);
+      for (const url of [...plainUrls, 'https://dashboard.example.com/']) assert.ok(re.test(url), url);
+      assert.ok(!re.test('http://sub.dashboard.example.com/'));
+    });
+
+    test('allowHttp が true なら、サブドメイン込みのルールも http・ws に一致する', () => {
+      const [rule] = buildRules([{ ...baseEntry, includeSubdomains: true, allowHttp: true }]);
+      const re = new RegExp(rule.condition.regexFilter);
+      for (const url of [...plainUrls, 'http://sub.dashboard.example.com/']) assert.ok(re.test(url), url);
+    });
+
+    test('allowHttp が true 以外 (文字列など) なら http を許可しない', () => {
+      const [rule] = buildRules([{ ...baseEntry, allowHttp: 'true' }]);
+      assert.ok(!new RegExp(rule.condition.regexFilter).test('http://dashboard.example.com/'));
+    });
   });
 
   test('Authorization ヘッダーを Basic 認証の値で set する', () => {

@@ -8,9 +8,10 @@ export class ValidationError extends Error {
   }
 }
 
-const EDITABLE_FIELDS = ['label', 'domain', 'includeSubdomains', 'username', 'password', 'enabled'];
+const EDITABLE_FIELDS = ['label', 'domain', 'includeSubdomains', 'allowHttp', 'username', 'password', 'enabled'];
 const HOSTNAME_PATTERN = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const PLAINTEXT_SCHEME = /^(?:http|ws):\/\//i;
 const MAX_LABEL_LENGTH = 100;
 
 function asString(value) {
@@ -68,12 +69,26 @@ function normalizeLabel(input, domain) {
   return label || domain;
 }
 
+// http の URL が貼り付けられたのに http を許可していなければ、黙って https 用に登録せず案内する
+function assertSchemeAllowed(domainInput, allowHttp) {
+  if (allowHttp || !PLAINTEXT_SCHEME.test(asString(domainInput).trim())) return;
+  throw new ValidationError(
+    'http（平文）の URL です。既定では https にだけ認証情報を送ります。'
+    + 'http で送る必要がある場合は「http（平文）を許可」を ON にしてください',
+    'domain',
+  );
+}
+
 function normalizeEntryFields(fields) {
+  // allowHttp を持たない以前の保存データは https のみとして扱う
+  const allowHttp = fields.allowHttp === true;
+  assertSchemeAllowed(fields.domain, allowHttp);
   const domain = normalizeDomain(fields.domain);
   return {
     label: normalizeLabel(fields.label, domain),
     domain,
     includeSubdomains: fields.includeSubdomains === true,
+    allowHttp,
     username: normalizeUsername(fields.username),
     password: normalizePassword(fields.password),
     enabled: fields.enabled === true,

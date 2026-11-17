@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createEntryService } from '../src/service.js';
 import { createSession, LockedError } from '../src/session.js';
 import { ValidationError } from '../src/entries.js';
-import { UnsupportedConfigError } from '../src/vault.js';
+import { UnsupportedConfigError, sealConfig } from '../src/vault.js';
 import { StateError, BrokenConfigError } from '../src/errors.js';
 import { deriveKey, decryptJson, VAULT_AAD, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 
@@ -54,6 +54,39 @@ describe('拡張機能の生成', () => {
     const manifest = readJson(configDir, 'extension', 'manifest.json');
     const vault = readJson(configDir, 'extension', 'vault.json');
     assert.equal(vault.extensionVersion, manifest.version);
+  });
+});
+
+describe('http (平文) の扱い', () => {
+  // allowHttp を持たない以前の保存データを、同じ鍵で config.json に書き直す
+  async function rewriteAsLegacyEntries(configDir) {
+    const configPath = path.join(configDir, 'config.json');
+    const config = readJson(configPath);
+    const key = await deriveKey(MASTER, config.kdf);
+    const { entries } = await decryptJson(key, config.vault, VAULT_AAD.config);
+    const legacyEntries = entries.map(({ allowHttp, ...rest }) => rest);
+    const sealed = await sealConfig({ counter: config.extensionVersionCounter, kdf: config.kdf, key, entries: legacyEntries });
+    fs.writeFileSync(configPath, JSON.stringify(sealed));
+  }
+
+  test('allowHttp を持たない以前の保存データは、再生成すると https のみになる', async () => {
+    const { configDir, service } = makeService();
+    await service.setup(MASTER);
+    await service.addEntry(entryInput);
+    await rewriteAsLegacyEntries(configDir);
+
+    await service.regenerate();
+    assert.deepEqual(readJson(configDir, 'extension', 'manifest.json').host_permissions, ['https://secure.example.com/*']);
+    const { entries } = await decryptExtensionVault(configDir, MASTER);
+    assert.equal(entries[0].allowHttp, false);
+  });
+
+  test('allowHttp を ON にしたエントリだけ http も対象にする', async () => {
+    const { configDir, service } = makeService();
+    await service.setup(MASTER);
+    const state = await service.addEntry({ ...entryInput, allowHttp: true });
+    assert.equal(state.entries[0].allowHttp, true);
+    assert.deepEqual(readJson(configDir, 'extension', 'manifest.json').host_permissions, ['*://secure.example.com/*']);
   });
 });
 
@@ -210,7 +243,7 @@ describe('エントリ操作と生成', () => {
 
     const { entries } = await decryptExtensionVault(configDir, MASTER);
     assert.deepEqual(entries, [{
-      domain: 'secure.example.com', includeSubdomains: false, username: SECRET_USER, password: SECRET_PASSWORD,
+      domain: 'secure.example.com', includeSubdomains: false, allowHttp: false, username: SECRET_USER, password: SECRET_PASSWORD,
     }]);
   });
 

@@ -84,6 +84,7 @@
                 <th scope="col">ラベル</th>
                 <th scope="col">ドメイン</th>
                 <th scope="col">サブドメイン</th>
+                <th scope="col">http</th>
                 <th scope="col">ユーザー名</th>
                 <th scope="col">パスワード</th>
                 <th scope="col"><span class="visually-hidden">操作</span></th>
@@ -104,7 +105,7 @@
           <div class="field">
             <label for="field-domain">ドメイン <span class="required">必須</span></label>
             <input id="field-domain" name="domain" type="text" required autocomplete="off" spellcheck="false" placeholder="dashboard.example.com">
-            <p class="hint">ホスト名のみ。URL を貼り付けてもスキーム・ポート・パスは取り除かれます。</p>
+            <p class="hint">ホスト名のみ。URL を貼り付けてもスキーム・ポート・パスは取り除かれます。既定では https（wss）のリクエストにだけ認証情報を送ります。</p>
           </div>
           <div class="field field-checkbox">
             <input id="field-include-subdomains" name="includeSubdomains" type="checkbox">
@@ -112,6 +113,13 @@
           </div>
           <p id="subdomain-warning" class="alert alert-warning" hidden>
             サブドメインを含めると、<code>*.<span id="subdomain-warning-domain"></span></code> のすべてのホストに同じ認証情報が送られます。信頼できるドメインのみで有効にしてください。
+          </p>
+          <div class="field field-checkbox">
+            <input id="field-allow-http" name="allowHttp" type="checkbox">
+            <label for="field-allow-http">http（平文）を許可</label>
+          </div>
+          <p id="allow-http-warning" class="alert alert-warning" hidden>
+            http（平文）のリクエストにも認証情報を送ります。通信経路で盗み見られるほか、他のサイトに埋め込まれた http のページ（iframe）経由でも送られます。https に対応していないサイトでのみ ON にしてください。
           </p>
           <div class="field">
             <label for="field-username">ユーザー名 <span class="required">必須</span></label>
@@ -148,6 +156,11 @@
         <div id="subdomain-notice" class="alert alert-warning" hidden>
           <p>次のエントリは「サブドメインを含む」が ON のため、サブドメインにも認証情報が送られます。</p>
           <ul id="subdomain-notice-list"></ul>
+        </div>
+
+        <div id="http-notice" class="alert alert-warning" hidden>
+          <p>次のエントリは「http（平文）を許可」が ON のため、http のリクエストにも認証情報が送られます。</p>
+          <ul id="http-notice-list"></ul>
         </div>
 
         <h3>Edge への読み込み手順</h3>

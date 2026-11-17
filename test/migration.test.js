@@ -17,6 +17,11 @@ describe('normalizeLegacyEntries', () => {
     assert.equal(entry.domain, 'a.example.com');
   });
 
+  test('旧形式のエントリは https のみ (allowHttp: false) として移行する', () => {
+    const [entry] = normalize([{ id: '1', domain: 'a.example.com', username: 'u', password: 'p' }]);
+    assert.equal(entry.allowHttp, false);
+  });
+
   test('entries がオブジェクトの場合は TypeError ではなく ValidationError になる', () => {
     assert.throws(() => normalize({ a: { domain: 'a.example.com' } }), ValidationError);
   });

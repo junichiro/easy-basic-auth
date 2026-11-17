@@ -30,6 +30,10 @@ const elements = {
   extensionVersion: byId('extension-version'),
   subdomainNotice: byId('subdomain-notice'),
   subdomainNoticeList: byId('subdomain-notice-list'),
+  allowHttpCheckbox: byId('field-allow-http'),
+  allowHttpWarning: byId('allow-http-warning'),
+  httpNotice: byId('http-notice'),
+  httpNoticeList: byId('http-notice-list'),
 };
 
 let status = { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: null };
@@ -167,6 +171,7 @@ function createEntryRow(entry) {
     createCell(entry.label),
     createCell(entry.domain),
     createCell(entry.includeSubdomains ? '含む' : '—'),
+    createCell(entry.allowHttp ? '許可' : '—'),
     createCell(entry.username),
     createCell(entry.hasPassword ? '••••••••' : '(未設定)'),
     createCell(createActions(entry)),
@@ -181,17 +186,24 @@ function renderEntries() {
   elements.entriesBody.replaceChildren(...state.entries.map(createEntryRow));
 }
 
+// 有効なエントリのうち条件に合うものを、注意書きの一覧として表示する
+function renderEntryNotice(notice, list, predicate, describe) {
+  const matched = state.entries.filter((entry) => entry.enabled && predicate(entry));
+  notice.hidden = matched.length === 0;
+  list.replaceChildren(...matched.map((entry) => {
+    const item = document.createElement('li');
+    item.textContent = `${entry.label}: ${describe(entry)}`;
+    return item;
+  }));
+}
+
 function renderResult() {
   elements.extensionDir.textContent = state.extensionDir ?? '';
   elements.extensionVersion.textContent = state.extensionVersion ?? '未生成（保存または再生成で作成されます）';
-
-  const wide = state.entries.filter((entry) => entry.enabled && entry.includeSubdomains);
-  elements.subdomainNotice.hidden = wide.length === 0;
-  elements.subdomainNoticeList.replaceChildren(...wide.map((entry) => {
-    const item = document.createElement('li');
-    item.textContent = `${entry.label}: ${entry.domain} と *.${entry.domain}`;
-    return item;
-  }));
+  renderEntryNotice(elements.subdomainNotice, elements.subdomainNoticeList,
+    (entry) => entry.includeSubdomains, (entry) => `${entry.domain} と *.${entry.domain}`);
+  renderEntryNotice(elements.httpNotice, elements.httpNoticeList,
+    (entry) => entry.allowHttp, (entry) => entry.domain);
 }
 
 function renderState() {
@@ -227,6 +239,10 @@ function updateSubdomainWarning() {
   elements.subdomainWarningDomain.textContent = elements.domainInput.value.trim() || '<domain>';
 }
 
+function updateAllowHttpWarning() {
+  elements.allowHttpWarning.hidden = !elements.allowHttpCheckbox.checked;
+}
+
 function openForm(entry) {
   editingId = entry?.id ?? null;
   elements.form.reset();
@@ -239,9 +255,11 @@ function openForm(entry) {
     elements.form.elements.label.value = entry.label;
     elements.form.elements.domain.value = entry.domain;
     elements.form.elements.includeSubdomains.checked = entry.includeSubdomains;
+    elements.form.elements.allowHttp.checked = entry.allowHttp === true;
     elements.form.elements.username.value = entry.username;
   }
   updateSubdomainWarning();
+  updateAllowHttpWarning();
   elements.formSection.hidden = false;
   elements.form.elements.label.focus();
 }
@@ -258,6 +276,7 @@ function readEntryForm() {
     label: fields.label.value,
     domain: fields.domain.value,
     includeSubdomains: fields.includeSubdomains.checked,
+    allowHttp: fields.allowHttp.checked,
     username: fields.username.value,
     password: fields.password.value,
   };
@@ -412,6 +431,7 @@ function bindEvents() {
   });
   elements.form.addEventListener('submit', submitEntryForm);
   elements.subdomainCheckbox.addEventListener('change', updateSubdomainWarning);
+  elements.allowHttpCheckbox.addEventListener('change', updateAllowHttpWarning);
   elements.domainInput.addEventListener('input', updateSubdomainWarning);
   document.querySelectorAll('[data-copy-target]').forEach((button) => {
     button.addEventListener('click', () => copyText(byId(button.dataset.copyTarget).textContent, button));

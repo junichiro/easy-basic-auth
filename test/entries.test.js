@@ -46,6 +46,7 @@ describe('createEntry', () => {
       label: '社内',
       domain: 'dashboard.example.com',
       includeSubdomains: false,
+      allowHttp: false,
       username: 'user',
       password: 'pass',
       enabled: true,
@@ -59,6 +60,27 @@ describe('createEntry', () => {
   test('includeSubdomains は true のときだけ有効になる', () => {
     assert.equal(createEntry({ ...input, includeSubdomains: true }, fixedId).includeSubdomains, true);
     assert.equal(createEntry({ ...input, includeSubdomains: 'true' }, fixedId).includeSubdomains, false);
+  });
+
+  test('allowHttp は true のときだけ有効になり、既定は false (https のみ)', () => {
+    assert.equal(createEntry({ ...input, allowHttp: true }, fixedId).allowHttp, true);
+    assert.equal(createEntry({ ...input, allowHttp: 'true' }, fixedId).allowHttp, false);
+    assert.equal(createEntry(input, fixedId).allowHttp, false);
+  });
+
+  test('http:// の URL を貼り付けても allowHttp がなければ拒否し、許可の方法を案内する', () => {
+    assert.throws(() => createEntry({ ...input, domain: 'http://dashboard.example.com/' }, fixedId), (error) => {
+      assert.ok(error instanceof ValidationError);
+      assert.equal(error.field, 'domain');
+      assert.match(error.message, /http（平文）を許可/);
+      return true;
+    });
+  });
+
+  test('http:// の URL でも allowHttp が true なら登録できる', () => {
+    const entry = createEntry({ ...input, domain: 'http://dashboard.example.com/', allowHttp: true }, fixedId);
+    assert.equal(entry.domain, 'dashboard.example.com');
+    assert.equal(entry.allowHttp, true);
   });
 
   test('パスワードが空なら拒否する', () => {
@@ -77,6 +99,7 @@ describe('updateEntry', () => {
     label: '旧',
     domain: 'old.example.com',
     includeSubdomains: false,
+    allowHttp: false,
     username: 'old',
     password: 'secret',
     enabled: true,
@@ -95,6 +118,15 @@ describe('updateEntry', () => {
   test('指定されたフィールドだけ更新し、ID は変えない', () => {
     const updated = updateEntry(existing, { enabled: false, id: 'hacked' });
     assert.deepEqual(updated, { ...existing, enabled: false });
+  });
+
+  test('allowHttp を持たない既存のエントリ (以前の保存データ) は https のみとして扱う', () => {
+    const { allowHttp, ...legacy } = existing;
+    assert.equal(updateEntry(legacy, { username: 'new' }).allowHttp, false);
+  });
+
+  test('allowHttp を更新できる', () => {
+    assert.equal(updateEntry(existing, { allowHttp: true }).allowHttp, true);
   });
 
   test('ドメインを更新するときも正規化する', () => {

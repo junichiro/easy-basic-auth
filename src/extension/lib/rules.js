@@ -18,10 +18,18 @@ function buildAuthorizationValue({ username, password }) {
   return `Basic ${bytesToBase64(credentials)}`;
 }
 
-// requestDomains はサブドメインにもマッチするため、完全一致が必要な場合は regexFilter を使う
-function buildDomainCondition({ domain, includeSubdomains }) {
-  if (includeSubdomains) return { requestDomains: [domain] };
-  return { regexFilter: `^(?:https?|wss?)://${escapeRegExp(domain)}(?::\\d+)?/` };
+// 既定では https / wss だけに送る。http (平文) は allowHttp で明示的に許可したエントリだけ。
+// allowHttp を持たない以前の保存データは https のみとして扱う
+function buildSchemePattern({ allowHttp }) {
+  return allowHttp === true ? '(?:https?|wss?)' : '(?:https|wss)';
+}
+
+// requestDomains はサブドメインにもマッチするため、完全一致が必要な場合は regexFilter を使う。
+// サブドメイン込みでも、スキームを限るために regexFilter を併用する
+function buildDomainCondition(entry) {
+  const scheme = buildSchemePattern(entry);
+  if (entry.includeSubdomains) return { requestDomains: [entry.domain], regexFilter: `^${scheme}://` };
+  return { regexFilter: `^${scheme}://${escapeRegExp(entry.domain)}(?::\\d+)?/` };
 }
 
 // 重なるルール (example.com のサブドメイン込みと api.example.com など) では、

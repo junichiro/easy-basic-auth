@@ -26,11 +26,15 @@ function enabledEntries(entries) {
   return entries.filter((entry) => entry.enabled);
 }
 
+// http (平文) を許可したエントリだけ *:// にし、それ以外は https:// に限る
+function buildEntryHostPermissions({ domain, includeSubdomains, allowHttp }) {
+  const scheme = allowHttp === true ? '*' : 'https';
+  const hosts = includeSubdomains ? [domain, `*.${domain}`] : [domain];
+  return hosts.map((host) => `${scheme}://${host}/*`);
+}
+
 function buildHostPermissions(entries) {
-  const permissions = enabledEntries(entries).flatMap(({ domain, includeSubdomains }) => (
-    includeSubdomains ? [`*://${domain}/*`, `*://*.${domain}/*`] : [`*://${domain}/*`]
-  ));
-  return [...new Set(permissions)];
+  return [...new Set(enabledEntries(entries).flatMap(buildEntryHostPermissions))];
 }
 
 // Chromium の version は各部分が 0〜65535 なので、超えたら次の部分に繰り上げる
@@ -57,8 +61,8 @@ export function buildManifest(entries, counter) {
  * 拡張機能に渡すのは、有効なエントリのルール生成に必要な項目だけにする。
  */
 export function selectExtensionEntries(entries) {
-  return enabledEntries(entries).map(({ domain, includeSubdomains, username, password }) => (
-    { domain, includeSubdomains, username, password }
+  return enabledEntries(entries).map(({ domain, includeSubdomains, allowHttp, username, password }) => (
+    { domain, includeSubdomains, allowHttp: allowHttp === true, username, password }
   ));
 }
 
