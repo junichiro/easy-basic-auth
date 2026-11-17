@@ -14,9 +14,9 @@ const unlocker = createUnlocker({
 
 const handleMessage = createMessageHandler(unlocker, chrome.runtime.id);
 
-// ブラウザ起動時・インストール/再読み込み時はセッションルールが空なので、ロック表示にする
-chrome.runtime.onStartup.addListener(() => unlocker.refreshBadge());
-chrome.runtime.onInstalled.addListener(() => unlocker.refreshBadge());
+// service worker が起動するたびにバッジを状態に合わせる。ブラウザ起動・インストール・再読み込みに加え、
+// 無効化→有効化のように onStartup / onInstalled が発火せずにセッションルールが消える場合も、ロック表示にする
+unlocker.refreshBadge();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse);
