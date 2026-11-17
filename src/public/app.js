@@ -147,6 +147,8 @@ function renderView() {
 
 async function loadStatus() {
   status = await callApi('GET', '/api/status');
+  // 409 の後などで解除済みでなくなったら、復号した内容を DOM に残さない
+  if (!status.unlocked) clearUnlockedData();
   renderView();
   if (status.unlocked) await refresh();
 }
@@ -434,16 +436,19 @@ async function copyText(text, button) {
   }
 }
 
+// ロック要求が失敗しても (サーバーの停止など)、画面からは復号した内容を消してロック中の表示にする。
+// サーバー側が解除のままでも、解除画面からもう一度解除すれば元に戻る
 async function lock() {
   try {
     status = await callApi('POST', '/api/lock');
-    clearUnlockedData();
-    closeForm();
-    renderView();
     showNotice('');
   } catch (error) {
+    status = { ...status, unlocked: false };
     showError(error.message);
   }
+  clearUnlockedData();
+  closeForm();
+  renderView();
 }
 
 function bindEvents() {
