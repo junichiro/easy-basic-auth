@@ -11,6 +11,24 @@ export class UnsupportedConfigError extends StateError {
   }
 }
 
+// config.json が壊れている、または想定した形式ではない (オブジェクトでない、version が正の整数でない)
+export class BrokenConfigError extends StateError {
+  constructor({ configPath } = {}) {
+    const location = configPath ? ` (${configPath})` : '';
+    super(`config.json${location} が壊れているか、想定した形式ではありません。ファイルを修正するか、別の場所へ移動してから再度お試しください`);
+    this.name = 'BrokenConfigError';
+    this.configPath = configPath;
+  }
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isValidVersion(version) {
+  return Number.isInteger(version) && version >= LEGACY_VERSION;
+}
+
 // 旧形式のエントリがあるか。配列でない値 (手編集・破損) も空とはみなさず、
 // 移行時の検証 (normalizeLegacyEntries) でエラーとして報告させる
 function hasLegacyEntries(entries) {
@@ -23,9 +41,13 @@ function hasLegacyEntries(entries) {
  * config.json の状態を判定する。
  * - v1: 旧形式（平文）。エントリがあれば移行が必要
  * - v2: マスターパスワードで暗号化済み
+ * - それより新しい整数の version: UnsupportedConfigError
+ * - オブジェクトでない、または version が正の整数でない: BrokenConfigError
+ *   (configPath を渡すと、エラーメッセージにファイルの場所を含める)
  */
-export function getConfigStatus(config) {
-  if (!config) return { initialized: false, needsMigration: false };
+export function getConfigStatus(config, { configPath } = {}) {
+  if (config === null || config === undefined) return { initialized: false, needsMigration: false };
+  if (!isPlainObject(config) || !isValidVersion(config.version)) throw new BrokenConfigError({ configPath });
   if (config.version === CONFIG_VERSION) return { initialized: true, needsMigration: false };
   if (config.version === LEGACY_VERSION) {
     return { initialized: false, needsMigration: hasLegacyEntries(config.entries) };

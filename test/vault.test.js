@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getConfigStatus, sealConfig, openConfig, readConfigEntries, UnsupportedConfigError } from '../src/vault.js';
+import { getConfigStatus, sealConfig, openConfig, readConfigEntries, UnsupportedConfigError, BrokenConfigError } from '../src/vault.js';
 import { createKdfParams, deriveKey, DecryptionError } from '../src/extension/lib/vault-crypto.js';
 import { StateError } from '../src/errors.js';
 
@@ -41,6 +41,48 @@ describe('getConfigStatus', () => {
   test('未知のバージョンはエラーにする', () => {
     assert.throws(() => getConfigStatus({ version: 99 }), UnsupportedConfigError);
     assert.throws(() => getConfigStatus({ version: 99 }), StateError);
+  });
+
+  test('新しいバージョンのエラーは「新しいバージョンで作成された可能性」を伝える', () => {
+    assert.throws(() => getConfigStatus({ version: 3 }), /新しいバージョン/);
+  });
+
+  const brokenConfigs = [
+    ['空のオブジェクト', {}],
+    ['version が無い', { entries: [] }],
+    ['version が文字列', { version: '2' }],
+    ['version が小数', { version: 2.5 }],
+    ['version が 0', { version: 0 }],
+    ['version が負数', { version: -1 }],
+    ['version が null', { version: null }],
+    ['配列', [{ version: 2 }]],
+    ['数値', 2],
+    ['文字列', 'config'],
+    ['真偽値 false', false],
+    ['真偽値 true', true],
+  ];
+  for (const [label, config] of brokenConfigs) {
+    test(`壊れた config (${label}) は BrokenConfigError にし、新しいバージョンとは報告しない`, () => {
+      assert.throws(() => getConfigStatus(config), (error) => {
+        assert.ok(error instanceof BrokenConfigError);
+        assert.ok(error instanceof StateError);
+        assert.ok(!(error instanceof UnsupportedConfigError));
+        assert.doesNotMatch(error.message, /新しいバージョン/);
+        assert.match(error.message, /config\.json/);
+        assert.match(error.message, /壊れているか/);
+        return true;
+      });
+    });
+  }
+
+  test('壊れた config のエラーには、渡された config のパスを含める', () => {
+    const configPath = '/home/user/.config/easy-basic-auth/config.json';
+    assert.throws(() => getConfigStatus({}, { configPath }), (error) => {
+      assert.ok(error instanceof BrokenConfigError);
+      assert.ok(error.message.includes(configPath));
+      assert.equal(error.configPath, configPath);
+      return true;
+    });
   });
 });
 
