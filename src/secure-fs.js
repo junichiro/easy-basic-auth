@@ -15,21 +15,49 @@ export function ensurePrivateDir(dir) {
   if (IS_POSIX) fs.chmodSync(dir, DIR_MODE);
 }
 
+// 中身をディスクへ書き出してから閉じる。rename の前に行わないと、停電時に空のファイルが残りうる
+function writeAndSync(filePath, content) {
+  const fd = fs.openSync(filePath, 'w', FILE_MODE);
+  try {
+    fs.writeFileSync(fd, content);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// rename をディスクへ確定させる。ディレクトリの fsync に対応しないファイルシステムもあるため、
+// 失敗してもファイル自体は置き換わっているので無視する
+function syncDirBestEffort(dir) {
+  if (!IS_POSIX) return;
+  try {
+    const fd = fs.openSync(dir, 'r');
+    try {
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    // 何もしない
+  }
+}
+
 /**
- * 一時ファイルに書いてから rename するアトミック書き込み。
+ * 一時ファイルに書いてディスクへ書き出してから rename するアトミック書き込み。
  * POSIX 環境ではファイルを 0600 にする。
  */
 export function writeFileAtomic(filePath, content) {
   const dir = path.dirname(filePath);
   const tmpPath = path.join(dir, `.${path.basename(filePath)}.${crypto.randomUUID()}.tmp`);
   try {
-    fs.writeFileSync(tmpPath, content, { mode: FILE_MODE });
+    writeAndSync(tmpPath, content);
     if (IS_POSIX) fs.chmodSync(tmpPath, FILE_MODE);
     fs.renameSync(tmpPath, filePath);
   } catch (error) {
     fs.rmSync(tmpPath, { force: true });
     throw error;
   }
+  syncDirBestEffort(dir);
 }
 
 export function writeJsonAtomic(filePath, value) {
