@@ -14,13 +14,15 @@ const unlocker = createUnlocker({
 
 const handleMessage = createMessageHandler(unlocker, chrome.runtime.id);
 
-// service worker が起動するたびにバッジを状態に合わせる。インストール・再読み込みに加え、
-// 無効化→有効化のように onStartup / onInstalled が発火せずにセッションルールが消える場合も、ロック表示にする
-unlocker.refreshBadge();
+// service worker が起動するたびに、ロックの状態とセッションルール・バッジをそろえる。
+// 無効化→有効化では storage.session (解除の状態) は消えるのにセッションルールが残り、
+// 「ロック中」と表示しながら資格情報を送り続けることがあるため、解除されていなければルールも消す
+unlocker.syncLockState();
 
-// ブラウザの起動時は、リスナーを登録したイベントがなければ service worker が起動しない。
-// バッジはブラウザを閉じると消えるため、起動時にロック表示に戻すにはこのリスナーが要る
-chrome.runtime.onStartup.addListener(() => unlocker.refreshBadge());
+// ブラウザの起動時と、インストール・更新・再読み込みの時は、リスナーを登録したイベントがなければ
+// service worker が起動しない。起動させてロックの状態をそろえるためにリスナーを置く
+chrome.runtime.onStartup.addListener(() => unlocker.syncLockState());
+chrome.runtime.onInstalled.addListener(() => unlocker.syncLockState());
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse);

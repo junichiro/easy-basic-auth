@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { LOCKED_BADGE_TEXT } from '../src/extension/lib/unlocker.js';
 
 // background.js は読み込んだ時点で chrome.* を使うため、読み込む前にフェイクを置く
-function installFakeChrome() {
+function installFakeChrome({ initialRules = [] } = {}) {
   const listeners = { startup: [], installed: [], message: [] };
+  let sessionRules = [...initialRules];
   const badge = { text: undefined };
   const sessionStorage = {};
   globalThis.chrome = {
@@ -28,11 +29,13 @@ function installFakeChrome() {
       setBadgeBackgroundColor: async () => {},
     },
     declarativeNetRequest: {
-      getSessionRules: async () => [],
-      updateSessionRules: async () => {},
+      getSessionRules: async () => sessionRules,
+      updateSessionRules: async ({ removeRuleIds = [], addRules = [] }) => {
+        sessionRules = [...sessionRules.filter((rule) => !removeRuleIds.includes(rule.id)), ...addRules];
+      },
     },
   };
-  return { listeners, badge };
+  return { listeners, badge, sessionRules: () => sessionRules };
 }
 
 const yieldToOthers = () => new Promise((resolve) => setImmediate(resolve));
@@ -40,12 +43,15 @@ const yieldToOthers = () => new Promise((resolve) => setImmediate(resolve));
 describe('background.js', () => {
   let fake;
   let badgeTextAtLoad;
+  let rulesAtLoad;
 
   before(async () => {
-    fake = installFakeChrome();
+    // 無効化→有効化の後のように、解除の状態は消えたがセッションルールだけが残っている状態から始める
+    fake = installFakeChrome({ initialRules: [{ id: 1, priority: 1, action: { type: 'modifyHeaders' }, condition: {} }] });
     await import('../src/extension/background.js');
     await yieldToOthers();
     badgeTextAtLoad = fake.badge.text;
+    rulesAtLoad = fake.sessionRules().length;
   });
 
   test('読み込まれた時点でバッジを状態に合わせる (インストール・再読み込み・有効化)', () => {
@@ -57,6 +63,17 @@ describe('background.js', () => {
     assert.equal(fake.listeners.startup.length, 1);
     fake.badge.text = undefined;
     await fake.listeners.startup[0]();
+    assert.equal(fake.badge.text, LOCKED_BADGE_TEXT);
+  });
+
+  test('読み込まれた時点で、解除されていなければ残っているセッションルールを消す', () => {
+    assert.equal(rulesAtLoad, 0);
+  });
+
+  test('インストール・更新・再読み込み (onInstalled) でも service worker を起こしてロックの状態に合わせる', async () => {
+    assert.equal(fake.listeners.installed.length, 1);
+    fake.badge.text = undefined;
+    await fake.listeners.installed[0]();
     assert.equal(fake.badge.text, LOCKED_BADGE_TEXT);
   });
 

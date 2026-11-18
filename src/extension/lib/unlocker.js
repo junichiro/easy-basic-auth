@@ -95,10 +95,21 @@ export function createUnlocker({ dnr, storage, action, loadVault, manifestVersio
     await setUnlocked(false);
   }
 
+  // 無効化→有効化や再読み込みでは storage.session は消えるが、セッションルールは残ることがある。
+  // 解除の状態が残っていなければ、ルールも消してロックの表示と実際の動作をそろえる
+  async function syncLockState() {
+    if (await isUnlocked()) {
+      await refreshBadge();
+      return;
+    }
+    await lock();
+  }
+
   return {
     getStatus,
     unlock: (password) => exclusive(() => unlock(password)),
     lock: () => exclusive(lock),
+    syncLockState: () => exclusive(syncLockState),
     refreshBadge,
   };
 }

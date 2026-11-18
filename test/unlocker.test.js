@@ -23,8 +23,8 @@ before(async () => {
 const yieldToOthers = () => new Promise((resolve) => setImmediate(resolve));
 
 // chrome.* API の最小限のフェイク
-function createFakeChrome({ loadVault = async () => vault, manifestVersion = '1.0.1' } = {}) {
-  let sessionRules = [];
+function createFakeChrome({ loadVault = async () => vault, manifestVersion = '1.0.1', initialRules = [] } = {}) {
+  let sessionRules = [...initialRules];
   const storage = {};
   const badge = { text: null };
   return {
@@ -187,6 +187,29 @@ describe('createUnlocker の同時実行', () => {
     await Promise.all([unlocker.unlock(MASTER), unlocker.lock()]);
     assert.equal(fake.sessionRules().length, 0);
     assert.deepEqual(await unlocker.getStatus(), { unlocked: false });
+  });
+});
+
+describe('createUnlocker の syncLockState', () => {
+  const leftoverRule = { id: 1, priority: 1, action: { type: 'modifyHeaders' }, condition: {} };
+
+  test('保存された状態が解除でなければ、残っているセッションルールを消してロック表示にする (無効化→有効化の後など)', async () => {
+    const fake = createFakeChrome({ initialRules: [leftoverRule] });
+    const unlocker = createUnlocker(fake.deps);
+    await unlocker.syncLockState();
+    assert.equal(fake.sessionRules().length, 0);
+    assert.equal(fake.badge.text, LOCKED_BADGE_TEXT);
+  });
+
+  test('解除済みなら、セッションルールを残したまま解除の表示にする (service worker の再起動)', async () => {
+    const fake = createFakeChrome();
+    const unlocker = createUnlocker(fake.deps);
+    await unlocker.unlock(MASTER);
+    const rulesAfterUnlock = fake.sessionRules().length;
+    await unlocker.syncLockState();
+    assert.ok(rulesAfterUnlock > 0);
+    assert.equal(fake.sessionRules().length, rulesAfterUnlock);
+    assert.equal(fake.badge.text, '');
   });
 });
 
