@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+# 認証情報・生成物はリポジトリ外 (CONFIG_DIR) に出力されるが、念のためルート直下のものを除外する
+/config.json
+/extension/

@@ -1,0 +1,479 @@
+const TOKEN_STORAGE_KEY = 'edge-basic-auth-token';
+
+const byId = (id) => document.getElementById(id);
+
+const elements = {
+  globalError: byId('global-error'),
+  globalNotice: byId('global-notice'),
+  lockButton: byId('lock-button'),
+  setupView: byId('setup-view'),
+  setupForm: byId('setup-form'),
+  migrationNotice: byId('migration-notice'),
+  unlockView: byId('unlock-view'),
+  unlockForm: byId('unlock-form'),
+  mainView: byId('main-view'),
+  changeForm: byId('change-form'),
+  entriesTable: byId('entries-table'),
+  entriesBody: byId('entries-body'),
+  entriesEmpty: byId('entries-empty'),
+  formSection: byId('form-section'),
+  formTitle: byId('form-title'),
+  form: byId('entry-form'),
+  formError: byId('form-error'),
+  passwordHint: byId('password-hint'),
+  passwordRequired: byId('password-required'),
+  subdomainCheckbox: byId('field-include-subdomains'),
+  subdomainWarning: byId('subdomain-warning'),
+  subdomainWarningDomain: byId('subdomain-warning-domain'),
+  domainInput: byId('field-domain'),
+  extensionDir: byId('extension-dir'),
+  extensionVersion: byId('extension-version'),
+  subdomainNotice: byId('subdomain-notice'),
+  subdomainNoticeList: byId('subdomain-notice-list'),
+  allowHttpCheckbox: byId('field-allow-http'),
+  allowHttpWarning: byId('allow-http-warning'),
+  httpNotice: byId('http-notice'),
+  httpNoticeList: byId('http-notice-list'),
+};
+
+let status = { initialized: false, unlocked: false, needsMigration: false, minMasterPasswordLength: null };
+let state = { entries: [] };
+let editingId = null;
+
+// URL のトークンを sessionStorage に移し、アドレスバー・履歴から消す
+function takeToken() {
+  const url = new URL(window.location.href);
+  const fromUrl = url.searchParams.get('token');
+  if (fromUrl) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, fromUrl);
+    url.searchParams.delete('token');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+const token = takeToken();
+
+// ---- 表示ヘルパー ----
+
+function showMessage(element, message) {
+  element.textContent = message ?? '';
+  element.hidden = !message;
+}
+
+// エラーと成功の案内は同時に出さない（前の操作の案内が残って、結果を取り違えないようにする）
+function showError(message) {
+  showMessage(elements.globalError, message);
+  if (message) showMessage(elements.globalNotice, '');
+}
+
+function showNotice(message) {
+  showMessage(elements.globalNotice, message);
+  if (message) showMessage(elements.globalError, '');
+}
+
+function formErrorOf(form) {
+  return form.querySelector('.form-error');
+}
+
+// ---- API ----
+
+// ロックしたら、復号した一覧と入力途中のマスターパスワードを DOM に残さない（解除後に取り直す）
+function clearUnlockedData() {
+  state = { entries: [] };
+  renderState();
+  elements.changeForm.reset();
+}
+
+// 入力途中の追加・編集フォームは閉じない（main-view ごと非表示になり、解除後にそのまま再表示される）
+function handleLocked(message) {
+  status = { ...status, unlocked: false };
+  clearUnlockedData();
+  renderView();
+  showError(message);
+  // 初期設定の直後にロックされた場合など、初期化の状態も変わっていることがあるため取り直す。
+  // 失敗してもロックの案内は表示済みなので、ここでは握りつぶす
+  loadStatus().catch(() => {});
+}
+
+// 409: 別のタブでの初期設定や config.json の削除などで、サーバーの状態が画面と食い違っている。
+// 画面を状態に合わせ直す（状態の取得自体が 409 の場合や、取り直しの最中は繰り返さない）
+let reloadingStatus = false;
+
+function handleConflict(path, message) {
+  if (path === '/api/status' || reloadingStatus) return;
+  reloadingStatus = true;
+  showError(message);
+  loadStatus().catch(() => {}).finally(() => { reloadingStatus = false; });
+}
+
+async function callApi(method, path, body) {
+  const headers = { Authorization: `Bearer ${token}` };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    throw new Error('トークンが無効です。サーバーのコンソールに表示された URL を開き直してください。');
+  }
+  if (res.status === 423) handleLocked(payload.error);
+  if (res.status === 409) handleConflict(path, payload.error);
+  if (!res.ok) throw new Error(payload.error || `リクエストに失敗しました (${res.status})`);
+  return payload;
+}
+
+// ---- 画面の切り替え ----
+
+function renderView() {
+  const { initialized, unlocked, needsMigration, minMasterPasswordLength } = status;
+  if (Number.isInteger(minMasterPasswordLength)) {
+    document.querySelectorAll('.min-password-length').forEach((element) => {
+      element.textContent = String(minMasterPasswordLength);
+    });
+  }
+  elements.setupView.hidden = initialized;
+  elements.migrationNotice.hidden = !needsMigration;
+  elements.unlockView.hidden = !initialized || unlocked;
+  elements.mainView.hidden = !unlocked;
+  elements.lockButton.hidden = !unlocked;
+
+  if (!initialized) elements.setupForm.elements.newPassword.focus();
+  else if (!unlocked) elements.unlockForm.elements.masterPassword.focus();
+}
+
+async function loadStatus() {
+  status = await callApi('GET', '/api/status');
+  // 409 の後などで解除済みでなくなったら、復号した内容を DOM に残さない
+  if (!status.unlocked) clearUnlockedData();
+  renderView();
+  if (status.unlocked) await refresh();
+}
+
+// ---- エントリ一覧 ----
+
+function createCell(content) {
+  const cell = document.createElement('td');
+  if (content instanceof Node) cell.append(content);
+  else cell.textContent = content;
+  return cell;
+}
+
+function createButton(label, className, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `button button-small ${className}`;
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function createToggle(entry) {
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.checked = entry.enabled;
+  toggle.setAttribute('aria-label', `${entry.label} を有効にする`);
+  toggle.addEventListener('change', () => {
+    runAction(() => callApi('PUT', `/api/entries/${encodeURIComponent(entry.id)}`, { enabled: toggle.checked }),
+      `${entry.label} を${toggle.checked ? '有効' : '無効'}にしました。拡張機能を再読み込みしてください。`);
+  });
+  return toggle;
+}
+
+function createActions(entry) {
+  const wrap = document.createElement('div');
+  wrap.className = 'row-actions';
+  wrap.append(
+    createButton('編集', '', () => openForm(entry)),
+    createButton('削除', 'button-danger', () => deleteEntry(entry)),
+  );
+  return wrap;
+}
+
+function createEntryRow(entry) {
+  const row = document.createElement('tr');
+  if (!entry.enabled) row.className = 'is-disabled';
+  row.append(
+    createCell(createToggle(entry)),
+    createCell(entry.label),
+    createCell(entry.domain),
+    createCell(entry.includeSubdomains ? '含む' : '—'),
+    createCell(entry.allowHttp ? '許可' : '—'),
+    createCell(entry.username),
+    createCell(entry.hasPassword ? '••••••••' : '(未設定)'),
+    createCell(createActions(entry)),
+  );
+  return row;
+}
+
+function renderEntries() {
+  const hasEntries = state.entries.length > 0;
+  elements.entriesTable.hidden = !hasEntries;
+  elements.entriesEmpty.hidden = hasEntries;
+  elements.entriesBody.replaceChildren(...state.entries.map(createEntryRow));
+}
+
+// 有効なエントリのうち条件に合うものを、注意書きの一覧として表示する
+function renderEntryNotice(notice, list, predicate, describe) {
+  const matched = state.entries.filter((entry) => entry.enabled && predicate(entry));
+  notice.hidden = matched.length === 0;
+  list.replaceChildren(...matched.map((entry) => {
+    const item = document.createElement('li');
+    item.textContent = `${entry.label}: ${describe(entry)}`;
+    return item;
+  }));
+}
+
+function renderResult() {
+  elements.extensionDir.textContent = state.extensionDir ?? '';
+  elements.extensionVersion.textContent = state.extensionVersion ?? '未生成（保存または再生成で作成されます）';
+  renderEntryNotice(elements.subdomainNotice, elements.subdomainNoticeList,
+    (entry) => entry.includeSubdomains, (entry) => `${entry.domain} と *.${entry.domain}`);
+  renderEntryNotice(elements.httpNotice, elements.httpNoticeList,
+    (entry) => entry.allowHttp, (entry) => entry.domain);
+}
+
+function renderState() {
+  renderEntries();
+  renderResult();
+}
+
+async function refresh() {
+  try {
+    state = await callApi('GET', '/api/state');
+    renderState();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+async function runAction(action, successMessage) {
+  showError('');
+  try {
+    state = await action();
+    renderState();
+    showNotice(successMessage);
+  } catch (error) {
+    showError(error.message);
+    if (status.unlocked) await refresh();
+  }
+}
+
+// ---- エントリの追加・編集フォーム ----
+
+function updateSubdomainWarning() {
+  elements.subdomainWarning.hidden = !elements.subdomainCheckbox.checked;
+  elements.subdomainWarningDomain.textContent = elements.domainInput.value.trim() || '<domain>';
+}
+
+function updateAllowHttpWarning() {
+  elements.allowHttpWarning.hidden = !elements.allowHttpCheckbox.checked;
+}
+
+function openForm(entry) {
+  editingId = entry?.id ?? null;
+  elements.form.reset();
+  showMessage(elements.formError, '');
+  elements.formTitle.textContent = entry ? `「${entry.label}」を編集` : 'サイトを追加';
+  elements.passwordHint.hidden = !entry;
+  elements.passwordRequired.hidden = Boolean(entry);
+
+  if (entry) {
+    elements.form.elements.label.value = entry.label;
+    elements.form.elements.domain.value = entry.domain;
+    elements.form.elements.includeSubdomains.checked = entry.includeSubdomains;
+    elements.form.elements.allowHttp.checked = entry.allowHttp === true;
+    elements.form.elements.username.value = entry.username;
+  }
+  updateSubdomainWarning();
+  updateAllowHttpWarning();
+  elements.formSection.hidden = false;
+  elements.form.elements.label.focus();
+}
+
+function closeForm() {
+  editingId = null;
+  elements.form.reset();
+  elements.formSection.hidden = true;
+}
+
+function readEntryForm() {
+  const fields = elements.form.elements;
+  return {
+    label: fields.label.value,
+    domain: fields.domain.value,
+    includeSubdomains: fields.includeSubdomains.checked,
+    allowHttp: fields.allowHttp.checked,
+    username: fields.username.value,
+    password: fields.password.value,
+  };
+}
+
+async function submitEntryForm(event) {
+  event.preventDefault();
+  showMessage(elements.formError, '');
+  const input = readEntryForm();
+  // ダブルクリックで同じ保存が 2 回送られないよう、応答が返るまでボタンを無効にする
+  const submitButton = elements.form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    state = editingId
+      ? await callApi('PUT', `/api/entries/${encodeURIComponent(editingId)}`, input)
+      : await callApi('POST', '/api/entries', input);
+  } catch (error) {
+    // 保存中にロックされた場合、案内は handleLocked が全体のエラー欄に表示済み。
+    // 非表示のフォーム内には書かず、入力内容を残したまま解除後の再保存を待つ
+    if (!status.unlocked) return;
+    showMessage(elements.formError, error.message);
+    return;
+  } finally {
+    submitButton.disabled = false;
+  }
+  closeForm();
+  renderState();
+  showNotice(`保存して version ${state.extensionVersion} を生成しました。Edge で拡張機能を再読み込みし、解除してください。`);
+}
+
+function deleteEntry(entry) {
+  // ブラウザ標準の confirm で誤操作を防ぐ
+  if (!window.confirm(`「${entry.label}」(${entry.domain}) を削除しますか？`)) return;
+  runAction(() => callApi('DELETE', `/api/entries/${encodeURIComponent(entry.id)}`),
+    `「${entry.label}」を削除しました。拡張機能を再読み込みしてください。`);
+}
+
+// ---- マスターパスワード関連のフォーム ----
+
+// 最低文字数はサーバーの値に合わせる（最終的な検証はサーバー側で行う）
+function validateNewPassword(newPassword, confirmPassword) {
+  const minLength = status.minMasterPasswordLength;
+  if (Number.isInteger(minLength) && [...newPassword].length < minLength) {
+    return `マスターパスワードは ${minLength} 文字以上にしてください`;
+  }
+  if (newPassword !== confirmPassword) return '確認用のパスワードが一致しません';
+  return null;
+}
+
+// フォーム送信の共通処理: エラー表示・二重送信防止・パスワード欄のクリア
+function bindCredentialForm(form, { validate, submit }) {
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const errorElement = formErrorOf(form);
+    showMessage(errorElement, '');
+    const validationError = validate?.(form.elements);
+    if (validationError) {
+      showMessage(errorElement, validationError);
+      return;
+    }
+
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await submit(form.elements);
+      form.querySelectorAll('input[type="password"]').forEach((input) => { input.value = ''; });
+    } catch (error) {
+      showMessage(errorElement, error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function bindSetupForm() {
+  bindCredentialForm(elements.setupForm, {
+    validate: (fields) => validateNewPassword(fields.newPassword.value, fields.confirmPassword.value),
+    submit: async (fields) => {
+      const migrated = status.needsMigration;
+      state = await callApi('POST', '/api/setup', { masterPassword: fields.newPassword.value });
+      status = { ...status, initialized: true, unlocked: true, needsMigration: false };
+      renderView();
+      renderState();
+      showNotice(migrated
+        ? '既存の登録を暗号化して移行しました。Edge で拡張機能を再読み込みし、マスターパスワードで解除してください。以前の平文がバックアップ等に残っている可能性があるため、気になる場合は各サイトのパスワード変更を検討してください。'
+        : 'マスターパスワードを設定しました。');
+    },
+  });
+}
+
+function bindUnlockForm() {
+  bindCredentialForm(elements.unlockForm, {
+    submit: async (fields) => {
+      status = await callApi('POST', '/api/unlock', { masterPassword: fields.masterPassword.value });
+      showError('');
+      renderView();
+      await refresh();
+    },
+  });
+}
+
+function bindChangeForm() {
+  bindCredentialForm(elements.changeForm, {
+    validate: (fields) => validateNewPassword(fields.newPassword.value, fields.confirmPassword.value),
+    submit: async (fields) => {
+      state = await callApi('POST', '/api/master-password', {
+        currentPassword: fields.currentPassword.value,
+        newPassword: fields.newPassword.value,
+      });
+      renderState();
+      elements.changeForm.closest('details').open = false;
+      showNotice(`マスターパスワードを変更し、version ${state.extensionVersion} を生成しました。Edge で拡張機能を再読み込みし、新しいパスワードで解除してください。`);
+    },
+  });
+}
+
+// ---- その他 ----
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = button.textContent;
+    button.textContent = 'コピーしました';
+    setTimeout(() => { button.textContent = original; }, 1500);
+  } catch {
+    showError('クリップボードにコピーできませんでした。手動で選択してコピーしてください。');
+  }
+}
+
+// ロック要求が失敗しても (サーバーの停止など)、画面からは復号した内容を消してロック中の表示にする。
+// サーバー側が解除のままでも、解除画面からもう一度解除すれば元に戻る
+async function lock() {
+  try {
+    status = await callApi('POST', '/api/lock');
+    showNotice('');
+  } catch (error) {
+    status = { ...status, unlocked: false };
+    showError(error.message);
+  }
+  clearUnlockedData();
+  closeForm();
+  renderView();
+}
+
+function bindEvents() {
+  bindSetupForm();
+  bindUnlockForm();
+  bindChangeForm();
+  elements.lockButton.addEventListener('click', lock);
+  byId('add-button').addEventListener('click', () => openForm(null));
+  byId('cancel-button').addEventListener('click', closeForm);
+  byId('generate-button').addEventListener('click', () => {
+    runAction(() => callApi('POST', '/api/generate'),
+      '再生成しました。Edge で拡張機能を再読み込みし、解除してください。');
+  });
+  elements.form.addEventListener('submit', submitEntryForm);
+  elements.subdomainCheckbox.addEventListener('change', updateSubdomainWarning);
+  elements.allowHttpCheckbox.addEventListener('change', updateAllowHttpWarning);
+  elements.domainInput.addEventListener('input', updateSubdomainWarning);
+  document.querySelectorAll('[data-copy-target]').forEach((button) => {
+    button.addEventListener('click', () => copyText(byId(button.dataset.copyTarget).textContent, button));
+  });
+}
+
+bindEvents();
+if (token) {
+  loadStatus().catch((error) => showError(error.message));
+} else {
+  showError('アクセストークンがありません。サーバー起動時にコンソールへ表示された URL（?token=... 付き）を開いてください。');
+}

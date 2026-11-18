@@ -1,0 +1,15 @@
+{
+  "name": "edge-basic-auth",
+  "version": "0.1.0",
+  "description": "Generate an Edge (Chromium) extension that sends Basic auth headers for registered domains",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  }
+}
